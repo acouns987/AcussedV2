@@ -1,0 +1,2447 @@
+-- =====================================================================================
+-- ACCUSED V9 OVERDRIVE - MOTION GRAPHICS INTRO + GLOBAL SEARCH + WORLD VFX + FFLAGS
+-- =====================================================================================
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local Stats = game:GetService("Stats")
+local SoundService = game:GetService("SoundService")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+local camera = workspace.CurrentCamera
+
+-- Contenedor seguro para ejecutores
+local guiParent = player:WaitForChild("PlayerGui")
+pcall(function()
+	if gethui then
+		guiParent = gethui()
+	elseif CoreGui then
+		guiParent = CoreGui
+	end
+end)
+
+-- Limpieza de versiones previas
+for _, oldName in ipairs({"AccusedOverdriveSuite", "AccusedPremiumSuite", "SaladVideoReplica"}) do
+	if guiParent:FindFirstChild(oldName) then
+		guiParent[oldName]:Destroy()
+	end
+end
+for _, oldFx in ipairs({"Accused3DEffects", "Salad3DEffects"}) do
+	if workspace:FindFirstChild(oldFx) then
+		workspace[oldFx]:Destroy()
+	end
+end
+
+local fxFolder = Instance.new("Folder")
+fxFolder.Name = "Accused3DEffects"
+fxFolder.Parent = workspace
+
+-- =====================================================================================
+-- ESTADO GLOBAL Y CONFIGURACIÓN COMPLETA
+-- =====================================================================================
+local State = {
+	MenuOpen = false, -- Se abre automáticamente al terminar la intro
+	EditHUD = true,
+	ChromaRGB = false,
+	ChromaSpeed = 1.0,
+	UIScale = 100,
+	CornerRadius = 10,
+	GlowIntensity = 35,
+
+	Accent = Color3.fromRGB(145, 115, 255),
+	BgColor = Color3.fromRGB(11, 12, 17),
+	CardColor = Color3.fromRGB(17, 18, 25),
+	BorderColor = Color3.fromRGB(36, 40, 56),
+
+	-- Watermark Individual Toggles
+	WmShowName = true,
+	WmShowFPS = true,
+	WmShowPing = true,
+	WmShowTime = true,
+
+	-- Effects (Personaje y Mapa)
+	ChinaHat = true,
+	HatColor = Color3.fromRGB(135, 185, 255),
+	HatOutline = true,
+	HatAnimated = true,
+	HatHeight = 0.85,
+	HatRadius = 1.95,
+	HatOffset = 1.85,
+	HatTransparency = 25,
+
+	AuraSwirl = true,
+	AuraRadius = 3.8,
+	AuraSpeed = 3.2,
+	FloatingOrbs = true,
+	TrailEnabled = true,
+	TrailColor = Color3.fromRGB(145, 115, 255),
+	TrailDuration = 0.75,
+	JumpEffect = true,
+	JumpColor = Color3.fromRGB(135, 185, 255),
+	Flashlight = false,
+	FlashlightRange = 60,
+
+	-- World & Oxygen VFX
+	Constellations = true,
+	ConstellationSpeed = 0.25,
+	ConstellationColor = Color3.fromRGB(210, 230, 255),
+	OxygenParticles = true,
+	OxygenColor = Color3.fromRGB(165, 210, 255),
+	OxygenAmount = 120,
+	SkyLightning = false,
+	LightningColor = Color3.fromRGB(155, 125, 255),
+	Fullbright = false,
+	AmbientEnabled = false,
+	AmbientColor = Color3.fromRGB(135, 90, 210),
+	ClockTime = 20,
+	Exposure = 0,
+	Bloom = true,
+
+	-- ESP
+	EspEnabled = true,
+	EspCorners = true,
+	EspNames = true,
+	EspHealth = true,
+	EspChams = false,
+	EspColor = Color3.fromRGB(255, 255, 255),
+	IncludeNPCs = true,
+
+	-- Player / Anticheat Testing
+	Walkspeed = false,
+	SpeedVal = 55,
+	JumpPower = false,
+	JumpVal = 95,
+	Fly = false,
+	FlySpeed = 65,
+	NoClip = false,
+	Spinbot = false,
+	SpinSpeed = 35,
+	InfiniteJump = false,
+
+	-- Combat
+	Aimbot = false,
+	ShowFOV = false,
+	AimFOV = 180,
+	AimSmooth = 20,
+	TriggerBot = false,
+	AutoFarm = false,
+	FarmDist = 5,
+
+	-- Character Preview
+	PreviewZoom = 5.5,
+	PreviewRotate = true
+}
+
+local Palette = {
+	Bg = State.BgColor,
+	Sidebar = Color3.fromRGB(9, 10, 14),
+	Card = State.CardColor,
+	CardHeader = Color3.fromRGB(22, 24, 34),
+	Border = State.BorderColor,
+	Text = Color3.fromRGB(242, 244, 250),
+	SubText = Color3.fromRGB(135, 142, 162),
+	SwitchOff = Color3.fromRGB(30, 33, 45)
+}
+
+-- Listas para actualización dinámica de toda la interfaz (Temas, Fuentes, Esquinas, RGB)
+local ThemeTargets = {
+	Accents = {},
+	AccentTexts = {},
+	AccentStrokes = {},
+	Bgs = {},
+	Cards = {},
+	Borders = {},
+	Corners = {},
+	Fonts = {}
+}
+
+local function regFont(inst, isBold)
+	table.insert(ThemeTargets.Fonts, {inst = inst, bold = isBold})
+end
+
+local function playSound(id, vol, pitch)
+	pcall(function()
+		local s = Instance.new("Sound", SoundService)
+		s.SoundId = id
+		s.Volume = vol or 0.25
+		s.PlaybackSpeed = pitch or 1
+		s.PlayOnRemove = true
+		s:Destroy()
+	end)
+end
+
+local function playClick()
+	playSound("rbxassetid://6895079853", 0.25, 1.05)
+end
+
+-- Función para arrastrar cualquier ventana o widget con suavidad
+local function makeDraggable(dragHandle, targetFrame, onlyWhenHudEdit)
+	local dragging = false
+	local dragStart, startPos
+
+	dragHandle.InputBegan:Connect(function(input)
+		if onlyWhenHudEdit and not State.EditHUD then return end
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			dragStart = input.Position
+			startPos = targetFrame.Position
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - dragStart
+			local goal = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+			TweenService:Create(targetFrame, TweenInfo.new(0.08, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Position = goal
+			}):Play()
+		end
+	end)
+end
+
+-- Hora normal de 12 horas (AM/PM)
+local function getNormalTime()
+	local hour24 = tonumber(os.date("%H")) or 12
+	local min = os.date("%M")
+	local period = (hour24 >= 12) and "PM" or "AM"
+	local hour12 = hour24 % 12
+	if hour12 == 0 then hour12 = 12 end
+	return string.format("%d:%s %s", hour12, min, period)
+end
+
+-- =====================================================================================
+-- 1. SCREEN GUI & CINEMÁTICA DE ENTRADA (AFTER EFFECTS MOTION GRAPHICS INTRO)
+-- =====================================================================================
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AccusedOverdriveSuite"
+screenGui.ResetOnSpawn = false
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = guiParent
+
+local function playMotionGraphicsIntro(onComplete)
+	local introOverlay = Instance.new("Frame", screenGui)
+	introOverlay.Size = UDim2.new(1, 0, 1, 0)
+	introOverlay.BackgroundColor3 = Color3.fromRGB(6, 7, 11)
+	introOverlay.BackgroundTransparency = 0.1
+	introOverlay.ZIndex = 200
+
+	local introCard = Instance.new("Frame", introOverlay)
+	introCard.Size = UDim2.new(0, 0, 0, 0)
+	introCard.AnchorPoint = Vector2.new(0.5, 0.5)
+	introCard.Position = UDim2.new(0.5, 0, 0.5, 0)
+	introCard.BackgroundColor3 = Palette.Bg
+	introCard.ClipsDescendants = true
+	introCard.ZIndex = 201
+	Instance.new("UICorner", introCard).CornerRadius = UDim.new(0, 14)
+	local icStroke = Instance.new("UIStroke", introCard)
+	icStroke.Color = State.Accent
+	icStroke.Thickness = 1.5
+
+	-- Anillos geométricos estilo After Effects
+	local ringOuter = Instance.new("Frame", introCard)
+	ringOuter.Size = UDim2.new(0, 86, 0, 86)
+	ringOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+	ringOuter.Position = UDim2.new(0.5, 0, 0.36, 0)
+	ringOuter.BackgroundTransparency = 1
+	ringOuter.ZIndex = 202
+	Instance.new("UICorner", ringOuter).CornerRadius = UDim.new(1, 0)
+	local roStroke = Instance.new("UIStroke", ringOuter)
+	roStroke.Color = State.Accent
+	roStroke.Thickness = 2
+	local roGrad = Instance.new("UIGradient", roStroke)
+	roGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.7, 0.8),
+		NumberSequenceKeypoint.new(1, 1)
+	})
+
+	local ringInner = Instance.new("Frame", introCard)
+	ringInner.Size = UDim2.new(0, 56, 0, 56)
+	ringInner.AnchorPoint = Vector2.new(0.5, 0.5)
+	ringInner.Position = UDim2.new(0.5, 0, 0.36, 0)
+	ringInner.BackgroundTransparency = 1
+	ringInner.Rotation = 45
+	ringInner.ZIndex = 202
+	Instance.new("UICorner", ringInner).CornerRadius = UDim.new(0, 12)
+	local riStroke = Instance.new("UIStroke", ringInner)
+	riStroke.Color = Color3.fromRGB(135, 195, 255)
+	riStroke.Thickness = 1.5
+
+	local coreLogo = Instance.new("TextLabel", introCard)
+	coreLogo.Size = UDim2.new(1, 0, 0, 28)
+	coreLogo.Position = UDim2.new(0, 0, 0.62, 0)
+	coreLogo.BackgroundTransparency = 1
+	coreLogo.Font = Enum.Font.GothamBlack
+	coreLogo.TextSize = 22
+	coreLogo.TextColor3 = Palette.Text
+	coreLogo.TextTransparency = 1
+	coreLogo.Text = "A C C U S E D"
+	coreLogo.ZIndex = 203
+
+	local statusTxt = Instance.new("TextLabel", introCard)
+	statusTxt.Size = UDim2.new(1, 0, 0, 16)
+	statusTxt.Position = UDim2.new(0, 0, 0.75, 0)
+	statusTxt.BackgroundTransparency = 1
+	statusTxt.Font = Enum.Font.GothamMedium
+	statusTxt.TextSize = 10
+	statusTxt.TextColor3 = Palette.SubText
+	statusTxt.Text = "INITIALIZING MOTION ENGINE..."
+	statusTxt.ZIndex = 203
+
+	local progBg = Instance.new("Frame", introCard)
+	progBg.Size = UDim2.new(0, 240, 0, 4)
+	progBg.AnchorPoint = Vector2.new(0.5, 0.5)
+	progBg.Position = UDim2.new(0.5, 0, 0.88, 0)
+	progBg.BackgroundColor3 = Palette.SwitchOff
+	progBg.ZIndex = 203
+	Instance.new("UICorner", progBg).CornerRadius = UDim.new(1, 0)
+
+	local progFill = Instance.new("Frame", progBg)
+	progFill.Size = UDim2.new(0, 0, 1, 0)
+	progFill.BackgroundColor3 = State.Accent
+	progFill.ZIndex = 204
+	Instance.new("UICorner", progFill).CornerRadius = UDim.new(1, 0)
+
+	-- Giro continuo durante la carga
+	local spinConn = RunService.RenderStepped:Connect(function(dt)
+		ringOuter.Rotation = (ringOuter.Rotation + dt * 220) % 360
+		ringInner.Rotation = (ringInner.Rotation - dt * 160) % 360
+	end)
+
+	task.spawn(function()
+		playSound("rbxassetid://6895079853", 0.35, 0.8)
+		TweenService:Create(introCard, TweenInfo.new(0.45, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Size = UDim2.new(0, 340, 0, 230)
+		}):Play()
+		task.wait(0.2)
+		TweenService:Create(coreLogo, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			TextTransparency = 0
+		}):Play()
+
+		local steps = {
+			{p = 0.35, t = "MOUNTING 3D SHADERS & SKYBOX..."},
+			{p = 0.72, t = "CLONING CHARACTER VIEWPORT..."},
+			{p = 1.00, t = "WELCOME, " .. string.upper(player.DisplayName)}
+		}
+		for _, st in ipairs(steps) do
+			statusTxt.Text = st.t
+			TweenService:Create(progFill, TweenInfo.new(0.32, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Size = UDim2.new(st.p, 0, 1, 0)
+			}):Play()
+			task.wait(0.34)
+		end
+
+		task.wait(0.15)
+		TweenService:Create(introCard, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+			Size = UDim2.new(0, 0, 0, 0)
+		}):Play()
+		local fadeOut = TweenService:Create(introOverlay, TweenInfo.new(0.38, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundTransparency = 1
+		})
+		fadeOut:Play()
+		fadeOut.Completed:Wait()
+		spinConn:Disconnect()
+		introOverlay:Destroy()
+		if onComplete then onComplete() end
+	end)
+end
+
+-- =====================================================================================
+-- 2. WIDGETS FLOTANTES CON GLOW Y MARCA DE AGUA PERSONALIZABLE POR SEPARADO
+-- =====================================================================================
+local function addOuterGlow(parentFrame, radius)
+	local glow = Instance.new("ImageLabel", parentFrame)
+	glow.Name = "OuterGlow"
+	glow.AnchorPoint = Vector2.new(0.5, 0.5)
+	glow.Position = UDim2.new(0.5, 0, 0.5, 0)
+	glow.Size = UDim2.new(1, radius or 28, 1, radius or 28)
+	glow.BackgroundTransparency = 1
+	glow.Image = "rbxassetid://1316045217"
+	glow.ImageColor3 = State.Accent
+	glow.ImageTransparency = 1 - (State.GlowIntensity / 100)
+	glow.ZIndex = 0
+	table.insert(ThemeTargets.Accents, {inst = glow, prop = "ImageColor3"})
+	return glow
+end
+
+-- A) WATERMARK SUPERIOR DERECHA (Ajustable por separado: Nombre, FPS, Ping, Hora)
+local watermark = Instance.new("Frame", screenGui)
+watermark.Size = UDim2.new(0, 340, 0, 28)
+watermark.Position = UDim2.new(1, -356, 0, 12)
+watermark.BackgroundColor3 = Palette.Bg
+watermark.BackgroundTransparency = 0.06
+Instance.new("UICorner", watermark).CornerRadius = UDim.new(0, 8)
+local wmStroke = Instance.new("UIStroke", watermark)
+wmStroke.Color = Palette.Border
+table.insert(ThemeTargets.Bgs, watermark)
+table.insert(ThemeTargets.Borders, wmStroke)
+addOuterGlow(watermark, 18)
+
+local wmAccentLine = Instance.new("Frame", watermark)
+wmAccentLine.Size = UDim2.new(0, 3, 0, 14)
+wmAccentLine.Position = UDim2.new(0, 7, 0.5, -7)
+wmAccentLine.BackgroundColor3 = State.Accent
+wmAccentLine.BorderSizePixel = 0
+Instance.new("UICorner", wmAccentLine).CornerRadius = UDim.new(1, 0)
+table.insert(ThemeTargets.Accents, {inst = wmAccentLine, prop = "BackgroundColor3"})
+
+local wmLabel = Instance.new("TextLabel", watermark)
+wmLabel.Size = UDim2.new(1, -22, 1, 0)
+wmLabel.Position = UDim2.new(0, 16, 0, 0)
+wmLabel.BackgroundTransparency = 1
+wmLabel.Font = Enum.Font.GothamBold
+wmLabel.TextSize = 11
+wmLabel.TextColor3 = Palette.Text
+wmLabel.TextXAlignment = Enum.TextXAlignment.Left
+wmLabel.TextTruncate = Enum.TextTruncate.AtEnd
+regFont(wmLabel, true)
+makeDraggable(watermark, watermark, true)
+
+-- B) WIDGET DE ESTADO "ACCUSED ENGINE"
+local infoWidget = Instance.new("Frame", screenGui)
+infoWidget.Size = UDim2.new(0, 210, 0, 62)
+infoWidget.Position = UDim2.new(0.5, -375, 0, 12)
+infoWidget.BackgroundColor3 = Palette.Bg
+infoWidget.BackgroundTransparency = 0.06
+Instance.new("UICorner", infoWidget).CornerRadius = UDim.new(0, 8)
+local infoStroke = Instance.new("UIStroke", infoWidget)
+infoStroke.Color = Palette.Border
+table.insert(ThemeTargets.Bgs, infoWidget)
+table.insert(ThemeTargets.Borders, infoStroke)
+
+local infoTopBar = Instance.new("Frame", infoWidget)
+infoTopBar.Size = UDim2.new(1, -16, 0, 2)
+infoTopBar.Position = UDim2.new(0, 8, 0, 0)
+infoTopBar.BackgroundColor3 = State.Accent
+infoTopBar.BorderSizePixel = 0
+Instance.new("UICorner", infoTopBar).CornerRadius = UDim.new(1, 0)
+table.insert(ThemeTargets.Accents, {inst = infoTopBar, prop = "BackgroundColor3"})
+
+local infoTitle = Instance.new("TextLabel", infoWidget)
+infoTitle.Size = UDim2.new(1, -20, 0, 18)
+infoTitle.Position = UDim2.new(0, 10, 0, 6)
+infoTitle.BackgroundTransparency = 1
+infoTitle.Font = Enum.Font.GothamBold
+infoTitle.TextSize = 11
+infoTitle.TextColor3 = Palette.Text
+infoTitle.TextXAlignment = Enum.TextXAlignment.Left
+infoTitle.TextTruncate = Enum.TextTruncate.AtEnd
+infoTitle.Text = "ACCUSED OVERDRIVE"
+regFont(infoTitle, true)
+
+local infoDesc = Instance.new("TextLabel", infoWidget)
+infoDesc.Size = UDim2.new(1, -20, 0, 32)
+infoDesc.Position = UDim2.new(0, 10, 0, 24)
+infoDesc.BackgroundTransparency = 1
+infoDesc.Font = Enum.Font.Gotham
+infoDesc.TextSize = 9
+infoDesc.TextColor3 = Palette.SubText
+infoDesc.TextWrapped = true
+infoDesc.TextTruncate = Enum.TextTruncate.AtEnd
+infoDesc.TextXAlignment = Enum.TextXAlignment.Left
+infoDesc.TextYAlignment = Enum.TextYAlignment.Top
+infoDesc.Text = "Drag any HUD widget freely. Global Search & ★ Favorites active."
+regFont(infoDesc, false)
+makeDraggable(infoWidget, infoWidget, true)
+
+-- C) WIDGET DE SESIÓN / MEDIA
+local mediaWidget = Instance.new("Frame", screenGui)
+mediaWidget.Size = UDim2.new(0, 195, 0, 62)
+mediaWidget.Position = UDim2.new(0.5, -155, 0, 12)
+mediaWidget.BackgroundColor3 = Palette.Bg
+mediaWidget.BackgroundTransparency = 0.06
+Instance.new("UICorner", mediaWidget).CornerRadius = UDim.new(0, 8)
+local mediaStroke = Instance.new("UIStroke", mediaWidget)
+mediaStroke.Color = Palette.Border
+table.insert(ThemeTargets.Bgs, mediaWidget)
+table.insert(ThemeTargets.Borders, mediaStroke)
+
+local albumThumb = Instance.new("ImageLabel", mediaWidget)
+albumThumb.Size = UDim2.new(0, 32, 0, 32)
+albumThumb.Position = UDim2.new(0, 8, 0, 8)
+albumThumb.BackgroundColor3 = Palette.Card
+albumThumb.Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150"
+Instance.new("UICorner", albumThumb).CornerRadius = UDim.new(0, 6)
+
+local mediaTitle = Instance.new("TextLabel", mediaWidget)
+mediaTitle.Size = UDim2.new(1, -50, 0, 14)
+mediaTitle.Position = UDim2.new(0, 46, 0, 9)
+mediaTitle.BackgroundTransparency = 1
+mediaTitle.Font = Enum.Font.GothamBold
+mediaTitle.TextSize = 10
+mediaTitle.TextColor3 = Palette.Text
+mediaTitle.TextXAlignment = Enum.TextXAlignment.Left
+mediaTitle.TextTruncate = Enum.TextTruncate.AtEnd
+mediaTitle.Text = "Accused Visual Engine"
+regFont(mediaTitle, true)
+
+local mediaSub = Instance.new("TextLabel", mediaWidget)
+mediaSub.Size = UDim2.new(1, -50, 0, 12)
+mediaSub.Position = UDim2.new(0, 46, 0, 23)
+mediaSub.BackgroundTransparency = 1
+mediaSub.Font = Enum.Font.Gotham
+mediaSub.TextSize = 9
+mediaSub.TextColor3 = Palette.SubText
+mediaSub.TextXAlignment = Enum.TextXAlignment.Left
+mediaSub.TextTruncate = Enum.TextTruncate.AtEnd
+mediaSub.Text = "User: " .. player.DisplayName
+regFont(mediaSub, false)
+
+local mediaBarBg = Instance.new("Frame", mediaWidget)
+mediaBarBg.Size = UDim2.new(1, -16, 0, 3)
+mediaBarBg.Position = UDim2.new(0, 8, 0, 48)
+mediaBarBg.BackgroundColor3 = Palette.Border
+Instance.new("UICorner", mediaBarBg).CornerRadius = UDim.new(1, 0)
+
+local mediaBarFill = Instance.new("Frame", mediaBarBg)
+mediaBarFill.Size = UDim2.new(0.45, 0, 1, 0)
+mediaBarFill.BackgroundColor3 = State.Accent
+Instance.new("UICorner", mediaBarFill).CornerRadius = UDim.new(1, 0)
+table.insert(ThemeTargets.Accents, {inst = mediaBarFill, prop = "BackgroundColor3"})
+makeDraggable(mediaWidget, mediaWidget, true)
+
+-- Círculo FOV y Contenedor ESP
+local fovCircle = Instance.new("Frame", screenGui)
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.BackgroundTransparency = 1
+fovCircle.Visible = false
+Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
+local fovStroke = Instance.new("UIStroke", fovCircle)
+fovStroke.Color = State.Accent
+fovStroke.Thickness = 1.2
+table.insert(ThemeTargets.Accents, {inst = fovStroke, prop = "Color"})
+
+local espViewport = Instance.new("Frame", screenGui)
+espViewport.Size = UDim2.new(1, 0, 1, 0)
+espViewport.BackgroundTransparency = 1
+espViewport.Active = false
+
+-- =====================================================================================
+-- 3. VENTANA PRINCIPAL + UISCALE + GLOW + PANEL 3D DEL PERSONAJE MEJORADO
+-- =====================================================================================
+local mainContainer = Instance.new("Frame", screenGui)
+mainContainer.Size = UDim2.new(0, 790, 0, 485)
+mainContainer.Position = UDim2.new(0.5, -395, 0.5, -215)
+mainContainer.BackgroundTransparency = 1
+mainContainer.Visible = false
+
+local mainUIScale = Instance.new("UIScale", mainContainer)
+mainUIScale.Scale = 1.0
+
+-- Ventana Principal Izquierda (575x485)
+local mainWin = Instance.new("Frame", mainContainer)
+mainWin.Size = UDim2.new(0, 575, 1, 0)
+mainWin.BackgroundColor3 = Palette.Bg
+mainWin.BorderSizePixel = 0
+mainWin.ClipsDescendants = true
+local mainWinCorner = Instance.new("UICorner", mainWin)
+mainWinCorner.CornerRadius = UDim.new(0, State.CornerRadius)
+local mainWinStroke = Instance.new("UIStroke", mainWin)
+mainWinStroke.Color = Palette.Border
+mainWinStroke.Thickness = 1.3
+table.insert(ThemeTargets.Bgs, mainWin)
+table.insert(ThemeTargets.Borders, mainWinStroke)
+table.insert(ThemeTargets.Corners, mainWinCorner)
+
+local mainGlow = addOuterGlow(mainWin, 34)
+
+-- Imagen de Fondo Personalizable
+local wallpaperImg = Instance.new("ImageLabel", mainWin)
+wallpaperImg.Size = UDim2.new(1, 0, 1, 0)
+wallpaperImg.BackgroundTransparency = 1
+wallpaperImg.Image = ""
+wallpaperImg.ImageTransparency = 0.78
+wallpaperImg.ScaleType = Enum.ScaleType.Crop
+wallpaperImg.ZIndex = 1
+
+-- Sidebar Izquierda (145px)
+local sidebar = Instance.new("Frame", mainWin)
+sidebar.Size = UDim2.new(0, 145, 1, 0)
+sidebar.BackgroundColor3 = Palette.Sidebar
+sidebar.BackgroundTransparency = 0.06
+sidebar.BorderSizePixel = 0
+sidebar.ZIndex = 2
+table.insert(ThemeTargets.Bgs, sidebar)
+
+local sideDivider = Instance.new("Frame", sidebar)
+sideDivider.Size = UDim2.new(0, 1, 1, 0)
+sideDivider.Position = UDim2.new(1, -1, 0, 0)
+sideDivider.BackgroundColor3 = Palette.Border
+sideDivider.BorderSizePixel = 0
+table.insert(ThemeTargets.Borders, sideDivider)
+
+local brandHeader = Instance.new("Frame", sidebar)
+brandHeader.Size = UDim2.new(1, 0, 0, 64)
+brandHeader.BackgroundTransparency = 1
+
+local brandLogoTitle = Instance.new("TextLabel", brandHeader)
+brandLogoTitle.Size = UDim2.new(1, -20, 0, 24)
+brandLogoTitle.Position = UDim2.new(0, 12, 0, 12)
+brandLogoTitle.BackgroundTransparency = 1
+brandLogoTitle.Font = Enum.Font.GothamBlack
+brandLogoTitle.TextSize = 18
+brandLogoTitle.TextColor3 = Palette.Text
+brandLogoTitle.TextXAlignment = Enum.TextXAlignment.Left
+brandLogoTitle.TextTruncate = Enum.TextTruncate.AtEnd
+brandLogoTitle.Text = "ACCUSED"
+regFont(brandLogoTitle, true)
+
+local brandBadge = Instance.new("TextLabel", brandHeader)
+brandBadge.Size = UDim2.new(1, -20, 0, 14)
+brandBadge.Position = UDim2.new(0, 12, 0, 36)
+brandBadge.BackgroundTransparency = 1
+brandBadge.Font = Enum.Font.GothamBold
+brandBadge.TextSize = 9
+brandBadge.TextColor3 = State.Accent
+brandBadge.TextXAlignment = Enum.TextXAlignment.Left
+brandBadge.TextTruncate = Enum.TextTruncate.AtEnd
+brandBadge.Text = "OVERDRIVE V9 SUITE"
+table.insert(ThemeTargets.Accents, {inst = brandBadge, prop = "TextColor3"})
+regFont(brandBadge, true)
+
+local navListFrame = Instance.new("ScrollingFrame", sidebar)
+navListFrame.Size = UDim2.new(1, -12, 1, -120)
+navListFrame.Position = UDim2.new(0, 6, 0, 68)
+navListFrame.BackgroundTransparency = 1
+navListFrame.BorderSizePixel = 0
+navListFrame.ScrollBarThickness = 0
+navListFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+navListFrame.ZIndex = 3
+local navLayout = Instance.new("UIListLayout", navListFrame)
+navLayout.Padding = UDim.new(0, 3)
+navLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+-- Tarjeta de Usuario Inferior
+local userCard = Instance.new("Frame", sidebar)
+userCard.Size = UDim2.new(1, -12, 0, 42)
+userCard.Position = UDim2.new(0, 6, 1, -48)
+userCard.BackgroundColor3 = Palette.Card
+userCard.ZIndex = 3
+local ucCorner = Instance.new("UICorner", userCard)
+ucCorner.CornerRadius = UDim.new(0, 7)
+local ucStroke = Instance.new("UIStroke", userCard)
+ucStroke.Color = Palette.Border
+table.insert(ThemeTargets.Cards, userCard)
+table.insert(ThemeTargets.Borders, ucStroke)
+table.insert(ThemeTargets.Corners, ucCorner)
+
+local userAvatar = Instance.new("ImageLabel", userCard)
+userAvatar.Size = UDim2.new(0, 28, 0, 28)
+userAvatar.Position = UDim2.new(0, 6, 0.5, -14)
+userAvatar.BackgroundColor3 = Palette.Bg
+userAvatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. player.UserId .. "&w=150&h=150"
+Instance.new("UICorner", userAvatar).CornerRadius = UDim.new(1, 0)
+
+local userDisplay = Instance.new("TextLabel", userCard)
+userDisplay.Size = UDim2.new(1, -42, 0, 14)
+userDisplay.Position = UDim2.new(0, 40, 0, 7)
+userDisplay.BackgroundTransparency = 1
+userDisplay.Font = Enum.Font.GothamBold
+userDisplay.TextSize = 10
+userDisplay.TextColor3 = Palette.Text
+userDisplay.TextXAlignment = Enum.TextXAlignment.Left
+userDisplay.TextTruncate = Enum.TextTruncate.AtEnd
+userDisplay.Text = player.DisplayName
+regFont(userDisplay, true)
+
+local userHandle = Instance.new("TextLabel", userCard)
+userHandle.Size = UDim2.new(1, -42, 0, 12)
+userHandle.Position = UDim2.new(0, 40, 0, 21)
+userHandle.BackgroundTransparency = 1
+userHandle.Font = Enum.Font.Gotham
+userHandle.TextSize = 9
+userHandle.TextColor3 = Palette.SubText
+userHandle.TextXAlignment = Enum.TextXAlignment.Left
+userHandle.TextTruncate = Enum.TextTruncate.AtEnd
+userHandle.Text = "@" .. player.Name
+regFont(userHandle, false)
+
+-- Barra Superior del Área Principal (Buscador Global + Botón Cerrar)
+local topBar = Instance.new("Frame", mainWin)
+topBar.Size = UDim2.new(1, -145, 0, 42)
+topBar.Position = UDim2.new(0, 145, 0, 0)
+topBar.BackgroundColor3 = Palette.Bg
+topBar.BackgroundTransparency = 0.08
+topBar.BorderSizePixel = 0
+topBar.ZIndex = 2
+table.insert(ThemeTargets.Bgs, topBar)
+
+local topBarLine = Instance.new("Frame", topBar)
+topBarLine.Size = UDim2.new(1, 0, 0, 1)
+topBarLine.Position = UDim2.new(0, 0, 1, -1)
+topBarLine.BackgroundColor3 = Palette.Border
+topBarLine.BorderSizePixel = 0
+table.insert(ThemeTargets.Borders, topBarLine)
+
+local searchBox = Instance.new("TextBox", topBar)
+searchBox.Size = UDim2.new(1, -56, 0, 26)
+searchBox.Position = UDim2.new(0, 12, 0.5, -13)
+searchBox.BackgroundColor3 = Palette.Card
+searchBox.PlaceholderText = "Global Search (e.g. aura, sky, fly, esp, fps, flags)..."
+searchBox.PlaceholderColor3 = Palette.SubText
+searchBox.Text = ""
+searchBox.Font = Enum.Font.GothamMedium
+searchBox.TextSize = 10
+searchBox.TextColor3 = Palette.Text
+searchBox.TextXAlignment = Enum.TextXAlignment.Left
+searchBox.ClearTextOnFocus = false
+local sbCorner = Instance.new("UICorner", searchBox)
+sbCorner.CornerRadius = UDim.new(0, 6)
+local sbStroke = Instance.new("UIStroke", searchBox)
+sbStroke.Color = Palette.Border
+local sbPad = Instance.new("UIPadding", searchBox)
+sbPad.PaddingLeft, sbPad.PaddingRight = UDim.new(0, 10), UDim.new(0, 8)
+table.insert(ThemeTargets.Cards, searchBox)
+table.insert(ThemeTargets.Borders, sbStroke)
+regFont(searchBox, false)
+
+local closeBtn = Instance.new("TextButton", topBar)
+closeBtn.Size = UDim2.new(0, 26, 0, 26)
+closeBtn.Position = UDim2.new(1, -34, 0.5, -13)
+closeBtn.BackgroundColor3 = Palette.Card
+closeBtn.Text = "X"
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 11
+closeBtn.TextColor3 = Palette.SubText
+closeBtn.AutoButtonColor = false
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 6)
+local cbStroke = Instance.new("UIStroke", closeBtn)
+cbStroke.Color = Palette.Border
+table.insert(ThemeTargets.Cards, closeBtn)
+table.insert(ThemeTargets.Borders, cbStroke)
+regFont(closeBtn, true)
+
+local pagesArea = Instance.new("Frame", mainWin)
+pagesArea.Size = UDim2.new(1, -145, 1, -42)
+pagesArea.Position = UDim2.new(0, 145, 0, 42)
+pagesArea.BackgroundTransparency = 1
+pagesArea.ZIndex = 2
+
+makeDraggable(topBar, mainContainer, false)
+makeDraggable(brandHeader, mainContainer, false)
+
+-- =====================================================================================
+-- 4. PANEL DERECHO DE PREVIEW 3D DEL PERSONAJE (PROPORCIONES Y CONTROLES MEJORADOS)
+-- =====================================================================================
+local espPreviewWin = Instance.new("Frame", mainContainer)
+espPreviewWin.Size = UDim2.new(0, 205, 1, 0)
+espPreviewWin.Position = UDim2.new(0, 585, 0, 0)
+espPreviewWin.BackgroundColor3 = Palette.Bg
+espPreviewWin.BorderSizePixel = 0
+local epCorner = Instance.new("UICorner", espPreviewWin)
+epCorner.CornerRadius = UDim.new(0, State.CornerRadius)
+local epStroke = Instance.new("UIStroke", espPreviewWin)
+epStroke.Color = Palette.Border
+epStroke.Thickness = 1.3
+table.insert(ThemeTargets.Bgs, espPreviewWin)
+table.insert(ThemeTargets.Borders, epStroke)
+table.insert(ThemeTargets.Corners, epCorner)
+addOuterGlow(espPreviewWin, 30)
+
+local espPrevHeader = Instance.new("Frame", espPreviewWin)
+espPrevHeader.Size = UDim2.new(1, 0, 0, 42)
+espPrevHeader.BackgroundTransparency = 1
+makeDraggable(espPrevHeader, espPreviewWin, true)
+
+local espPrevTitle = Instance.new("TextLabel", espPrevHeader)
+espPrevTitle.Size = UDim2.new(1, -24, 1, 0)
+espPrevTitle.Position = UDim2.new(0, 12, 0, 0)
+espPrevTitle.BackgroundTransparency = 1
+espPrevTitle.Font = Enum.Font.GothamBold
+espPrevTitle.TextSize = 11
+espPrevTitle.TextColor3 = Palette.Text
+espPrevTitle.TextXAlignment = Enum.TextXAlignment.Left
+espPrevTitle.TextTruncate = Enum.TextTruncate.AtEnd
+espPrevTitle.Text = "Character 3D Preview"
+regFont(espPrevTitle, true)
+
+local espPrevLine = Instance.new("Frame", espPreviewWin)
+espPrevLine.Size = UDim2.new(1, 0, 0, 1)
+espPrevLine.Position = UDim2.new(0, 0, 0, 41)
+espPrevLine.BackgroundColor3 = Palette.Border
+espPrevLine.BorderSizePixel = 0
+table.insert(ThemeTargets.Borders, espPrevLine)
+
+local avatarViewport = Instance.new("ViewportFrame", espPreviewWin)
+avatarViewport.Size = UDim2.new(1, -18, 1, -92)
+avatarViewport.Position = UDim2.new(0, 9, 0, 50)
+avatarViewport.BackgroundColor3 = Palette.Card
+avatarViewport.BackgroundTransparency = 0.15
+avatarViewport.Ambient = Color3.fromRGB(205, 205, 220)
+avatarViewport.LightColor = Color3.fromRGB(255, 255, 255)
+avatarViewport.LightDirection = Vector3.new(-1, -1, -1)
+local avCorner = Instance.new("UICorner", avatarViewport)
+avCorner.CornerRadius = UDim.new(0, 8)
+local avStroke = Instance.new("UIStroke", avatarViewport)
+avStroke.Color = Palette.Border
+table.insert(ThemeTargets.Cards, avatarViewport)
+table.insert(ThemeTargets.Borders, avStroke)
+
+-- Botones rápidos debajo del Viewport (Rotar / Zoom / Recargar)
+local prevControlsBar = Instance.new("Frame", espPreviewWin)
+prevControlsBar.Size = UDim2.new(1, -18, 0, 26)
+prevControlsBar.Position = UDim2.new(0, 9, 1, -34)
+prevControlsBar.BackgroundTransparency = 1
+
+local btnToggleRot = Instance.new("TextButton", prevControlsBar)
+btnToggleRot.Size = UDim2.new(0.48, 0, 1, 0)
+btnToggleRot.BackgroundColor3 = Palette.Card
+btnToggleRot.Text = "Spin: ON"
+btnToggleRot.Font = Enum.Font.GothamBold
+btnToggleRot.TextSize = 10
+btnToggleRot.TextColor3 = State.Accent
+Instance.new("UICorner", btnToggleRot).CornerRadius = UDim.new(0, 5)
+Instance.new("UIStroke", btnToggleRot).Color = Palette.Border
+table.insert(ThemeTargets.Cards, btnToggleRot)
+table.insert(ThemeTargets.Accents, {inst = btnToggleRot, prop = "TextColor3"})
+
+btnToggleRot.MouseButton1Click:Connect(function()
+	playClick()
+	State.PreviewRotate = not State.PreviewRotate
+	btnToggleRot.Text = State.PreviewRotate and "Spin: ON" or "Spin: PAUSED"
+end)
+
+local btnReloadSkin = Instance.new("TextButton", prevControlsBar)
+btnReloadSkin.Size = UDim2.new(0.48, 0, 1, 0)
+btnReloadSkin.Position = UDim2.new(0.52, 0, 0, 0)
+btnReloadSkin.BackgroundColor3 = Palette.Card
+btnReloadSkin.Text = "Sync Skin"
+btnReloadSkin.Font = Enum.Font.GothamBold
+btnReloadSkin.TextSize = 10
+btnReloadSkin.TextColor3 = Palette.Text
+Instance.new("UICorner", btnReloadSkin).CornerRadius = UDim.new(0, 5)
+Instance.new("UIStroke", btnReloadSkin).Color = Palette.Border
+table.insert(ThemeTargets.Cards, btnReloadSkin)
+
+local vpWorld = Instance.new("WorldModel", avatarViewport)
+local vpCam = Instance.new("Camera", avatarViewport)
+avatarViewport.CurrentCamera = vpCam
+
+-- Superposición ESP 2D proporcionada dentro del Preview
+local previewStage = Instance.new("Frame", avatarViewport)
+previewStage.Size = UDim2.new(0, 118, 0, 215)
+previewStage.AnchorPoint = Vector2.new(0.5, 0.5)
+previewStage.Position = UDim2.new(0.5, 3, 0.52, 0)
+previewStage.BackgroundTransparency = 1
+
+local prevNameLbl = Instance.new("TextLabel", previewStage)
+prevNameLbl.Size = UDim2.new(1, 0, 0, 14)
+prevNameLbl.Position = UDim2.new(0, 0, 0, -17)
+prevNameLbl.BackgroundTransparency = 1
+prevNameLbl.Font = Enum.Font.GothamBold
+prevNameLbl.TextSize = 10
+prevNameLbl.TextColor3 = Palette.Text
+prevNameLbl.TextTruncate = Enum.TextTruncate.AtEnd
+prevNameLbl.Text = player.Name
+regFont(prevNameLbl, true)
+
+local prevHpBg = Instance.new("Frame", previewStage)
+prevHpBg.Size = UDim2.new(0, 3, 1, 0)
+prevHpBg.Position = UDim2.new(0, -7, 0, 0)
+prevHpBg.BackgroundColor3 = Color3.fromRGB(95, 255, 135)
+prevHpBg.BorderSizePixel = 0
+
+local previewCorners = {}
+local function makeCorner(parent, xScale, yScale, ax, ay, w, h)
+	local f = Instance.new("Frame", parent)
+	f.Size = UDim2.new(0, w, 0, h)
+	f.AnchorPoint = Vector2.new(ax, ay)
+	f.Position = UDim2.new(xScale, 0, yScale, 0)
+	f.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	f.BorderSizePixel = 0
+	table.insert(previewCorners, f)
+end
+makeCorner(previewStage, 0, 0, 0, 0, 14, 2)
+makeCorner(previewStage, 0, 0, 0, 0, 2, 14)
+makeCorner(previewStage, 1, 0, 1, 0, 14, 2)
+makeCorner(previewStage, 1, 0, 1, 0, 2, 14)
+makeCorner(previewStage, 0, 1, 0, 1, 14, 2)
+makeCorner(previewStage, 0, 1, 0, 1, 2, 14)
+makeCorner(previewStage, 1, 1, 1, 1, 14, 2)
+makeCorner(previewStage, 1, 1, 1, 1, 2, 14)
+
+local vpCharClone, vpHatPart, vpHatMesh, vpAuraPart, vpAuraMesh
+
+local function rebuildViewportCharacter()
+	vpWorld:ClearAllChildren()
+	local char = player.Character
+	if not char then return end
+
+	char.Archivable = true
+	local ok, clone = pcall(function() return char:Clone() end)
+	if not ok or not clone then return end
+
+	for _, desc in ipairs(clone:GetDescendants()) do
+		if desc:IsA("LocalScript") or desc:IsA("Script") or desc:IsA("BodyMover") or desc:IsA("Trail") or desc:IsA("Highlight") then
+			desc:Destroy()
+		elseif desc:IsA("BasePart") then
+			desc.Anchored = true
+		end
+	end
+	clone.Parent = vpWorld
+	vpCharClone = clone
+
+	vpHatPart = Instance.new("Part", vpWorld)
+	vpHatPart.Anchored = true
+	vpHatPart.CanCollide = false
+	vpHatPart.Material = Enum.Material.Neon
+	vpHatPart.Color = State.HatColor
+	vpHatPart.Size = Vector3.new(1, 1, 1)
+	vpHatMesh = Instance.new("SpecialMesh", vpHatPart)
+	vpHatMesh.MeshType = Enum.MeshType.FileMesh
+	vpHatMesh.MeshId = "rbxassetid://1033714"
+
+	vpAuraPart = Instance.new("Part", vpWorld)
+	vpAuraPart.Anchored = true
+	vpAuraPart.CanCollide = false
+	vpAuraPart.Material = Enum.Material.Neon
+	vpAuraPart.Color = State.HatColor
+	vpAuraPart.Size = Vector3.new(0.2, 0.2, 0.2)
+	vpAuraMesh = Instance.new("SpecialMesh", vpAuraPart)
+	vpAuraMesh.MeshType = Enum.MeshType.FileMesh
+	vpAuraMesh.MeshId = "rbxassetid://3270017"
+	vpAuraMesh.Scale = Vector3.new(3.2, 3.2, 0.9)
+end
+
+btnReloadSkin.MouseButton1Click:Connect(function()
+	playClick()
+	rebuildViewportCharacter()
+end)
+
+task.spawn(rebuildViewportCharacter)
+player.CharacterAdded:Connect(function()
+	task.wait(1)
+	rebuildViewportCharacter()
+end)
+
+-- =====================================================================================
+-- 5. POPUP SELECTOR DE COLOR INTERACTIVO
+-- =====================================================================================
+local colorModal = Instance.new("Frame", mainContainer)
+colorModal.Size = UDim2.new(0, 185, 0, 136)
+colorModal.Position = UDim2.new(0, 320, 0, 220)
+colorModal.BackgroundColor3 = Palette.CardHeader
+colorModal.Visible = false
+colorModal.ZIndex = 30
+Instance.new("UICorner", colorModal).CornerRadius = UDim.new(0, 8)
+Instance.new("UIStroke", colorModal).Color = Palette.Border
+
+local cpTitle = Instance.new("TextLabel", colorModal)
+cpTitle.Size = UDim2.new(1, -16, 0, 20)
+cpTitle.Position = UDim2.new(0, 8, 0, 4)
+cpTitle.BackgroundTransparency = 1
+cpTitle.Font = Enum.Font.GothamBold
+cpTitle.TextSize = 10
+cpTitle.TextColor3 = Palette.Text
+cpTitle.TextXAlignment = Enum.TextXAlignment.Left
+cpTitle.Text = "Select Color"
+cpTitle.ZIndex = 31
+
+local activeColorCallback = nil
+local presetColors = {
+	Color3.fromRGB(135, 185, 255), Color3.fromRGB(145, 115, 255), Color3.fromRGB(255, 105, 180), Color3.fromRGB(255, 65, 85),
+	Color3.fromRGB(0, 245, 150),   Color3.fromRGB(255, 200, 60),  Color3.fromRGB(255, 255, 255), Color3.fromRGB(80, 235, 255),
+	Color3.fromRGB(190, 50, 255),  Color3.fromRGB(255, 120, 50),  Color3.fromRGB(15, 16, 24),    Color3.fromRGB(28, 16, 38)
+}
+
+local cpGrid = Instance.new("Frame", colorModal)
+cpGrid.Size = UDim2.new(1, -16, 0, 72)
+cpGrid.Position = UDim2.new(0, 8, 0, 26)
+cpGrid.BackgroundTransparency = 1
+cpGrid.ZIndex = 31
+local cpLayout = Instance.new("UIGridLayout", cpGrid)
+cpLayout.CellSize = UDim2.new(0, 36, 0, 20)
+cpLayout.CellPadding = UDim2.new(0, 6, 0, 6)
+
+for _, col in ipairs(presetColors) do
+	local cBtn = Instance.new("TextButton", cpGrid)
+	cBtn.BackgroundColor3 = col
+	cBtn.Text = ""
+	cBtn.ZIndex = 32
+	Instance.new("UICorner", cBtn).CornerRadius = UDim.new(0, 4)
+	cBtn.MouseButton1Click:Connect(function()
+		playClick()
+		if activeColorCallback then activeColorCallback(col) end
+		colorModal.Visible = false
+	end)
+end
+
+local cpClose = Instance.new("TextButton", colorModal)
+cpClose.Size = UDim2.new(1, -16, 0, 20)
+cpClose.Position = UDim2.new(0, 8, 1, -24)
+cpClose.BackgroundColor3 = Palette.Card
+cpClose.Text = "Close"
+cpClose.Font = Enum.Font.GothamBold
+cpClose.TextSize = 10
+cpClose.TextColor3 = Palette.SubText
+cpClose.ZIndex = 32
+Instance.new("UICorner", cpClose).CornerRadius = UDim.new(0, 4)
+cpClose.MouseButton1Click:Connect(function() colorModal.Visible = false end)
+
+-- =====================================================================================
+-- 6. MOTOR DE PESTAÑAS + BUSCADOR GLOBAL CROSS-TAB + SISTEMA DE FAVORITOS (★)
+-- =====================================================================================
+local pages = {}
+local navBtns = {}
+local navOrder = 0
+local currentActiveTab = "Effects"
+local allGroupboxes = {}
+local favoriteItems = {}
+local favGroupLeft, favGroupRight
+
+local function addSidebarCategory(titleText)
+	navOrder += 1
+	local lbl = Instance.new("TextLabel", navListFrame)
+	lbl.Size = UDim2.new(1, -8, 0, 18)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.GothamBold
+	lbl.TextSize = 9
+	lbl.TextColor3 = Palette.SubText
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextTruncate = Enum.TextTruncate.AtEnd
+	lbl.Text = "  " .. string.upper(titleText)
+	lbl.LayoutOrder = navOrder
+	regFont(lbl, true)
+end
+
+local function switchPage(tabName)
+	currentActiveTab = tabName
+	if searchBox.Text ~= "" then
+		searchBox.Text = ""
+	end
+	for name, p in pairs(pages) do
+		if name == tabName then
+			p.Visible = true
+			p.Position = UDim2.new(0, 8, 0, 14)
+			TweenService:Create(p, TweenInfo.new(0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Position = UDim2.new(0, 8, 0, 8)
+			}):Play()
+		else
+			p.Visible = false
+		end
+	end
+	for name, bData in pairs(navBtns) do
+		local active = (name == tabName)
+		TweenService:Create(bData.btn, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundColor3 = active and Palette.CardHeader or Palette.Sidebar,
+			BackgroundTransparency = active and 0 or 1,
+			TextColor3 = active and Palette.Text or Palette.SubText
+		}):Play()
+		bData.bar.Visible = active
+	end
+end
+
+local function createSidebarTab(tabName)
+	navOrder += 1
+	local btn = Instance.new("TextButton", navListFrame)
+	btn.Size = UDim2.new(1, 0, 0, 25)
+	btn.BackgroundColor3 = Palette.Sidebar
+	btn.BackgroundTransparency = 1
+	btn.Text = "     " .. tabName
+	btn.Font = Enum.Font.GothamMedium
+	btn.TextSize = 11
+	btn.TextColor3 = Palette.SubText
+	btn.TextXAlignment = Enum.TextXAlignment.Left
+	btn.TextTruncate = Enum.TextTruncate.AtEnd
+	btn.AutoButtonColor = false
+	btn.LayoutOrder = navOrder
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+	regFont(btn, false)
+
+	local bar = Instance.new("Frame", btn)
+	bar.Size = UDim2.new(0, 3, 0, 13)
+	bar.Position = UDim2.new(0, 4, 0.5, -6)
+	bar.BackgroundColor3 = State.Accent
+	bar.BorderSizePixel = 0
+	bar.Visible = false
+	Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
+	table.insert(ThemeTargets.Accents, {inst = bar, prop = "BackgroundColor3"})
+
+	local page = Instance.new("Frame", pagesArea)
+	page.Size = UDim2.new(1, -16, 1, -16)
+	page.Position = UDim2.new(0, 8, 0, 8)
+	page.BackgroundTransparency = 1
+	page.Visible = false
+
+	local cols = {}
+	for i = 1, 2 do
+		local col = Instance.new("ScrollingFrame", page)
+		col.Size = UDim2.new(0.488, 0, 1, 0)
+		col.Position = UDim2.new((i - 1) * 0.512, 0, 0, 0)
+		col.BackgroundTransparency = 1
+		col.BorderSizePixel = 0
+		col.ScrollBarThickness = 0
+		col.AutomaticCanvasSize = Enum.AutomaticSize.Y
+		col.CanvasSize = UDim2.new()
+		local layout = Instance.new("UIListLayout", col)
+		layout.Padding = UDim.new(0, 8)
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		cols[i] = col
+	end
+
+	pages[tabName] = page
+	navBtns[tabName] = {btn = btn, bar = bar}
+
+	btn.MouseButton1Click:Connect(function()
+		playClick()
+		switchPage(tabName)
+	end)
+
+	return cols
+end
+
+-- Página especial de Búsqueda Global (Une tarjetas de todas las pestañas cuando escribes)
+local globalSearchPage = Instance.new("Frame", pagesArea)
+globalSearchPage.Size = UDim2.new(1, -16, 1, -16)
+globalSearchPage.Position = UDim2.new(0, 8, 0, 8)
+globalSearchPage.BackgroundTransparency = 1
+globalSearchPage.Visible = false
+
+local gsCols = {}
+for i = 1, 2 do
+	local col = Instance.new("ScrollingFrame", globalSearchPage)
+	col.Size = UDim2.new(0.488, 0, 1, 0)
+	col.Position = UDim2.new((i - 1) * 0.512, 0, 0, 0)
+	col.BackgroundTransparency = 1
+	col.BorderSizePixel = 0
+	col.ScrollBarThickness = 0
+	col.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	local layout = Instance.new("UIListLayout", col)
+	layout.Padding = UDim.new(0, 8)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	gsCols[i] = col
+end
+
+local function createGroupbox(colParent, titleText, order)
+	local box = Instance.new("Frame", colParent)
+	box.Size = UDim2.new(1, -2, 0, 0)
+	box.AutomaticSize = Enum.AutomaticSize.Y
+	box.BackgroundColor3 = Palette.Card
+	box.BackgroundTransparency = 0.05
+	box.LayoutOrder = order or 1
+	local bCorner = Instance.new("UICorner", box)
+	bCorner.CornerRadius = UDim.new(0, 7)
+	local stroke = Instance.new("UIStroke", box)
+	stroke.Color = Palette.Border
+	table.insert(ThemeTargets.Cards, box)
+	table.insert(ThemeTargets.Borders, stroke)
+	table.insert(ThemeTargets.Corners, bCorner)
+
+	local pad = Instance.new("UIPadding", box)
+	pad.PaddingTop, pad.PaddingBottom = UDim.new(0, 8), UDim.new(0, 10)
+	pad.PaddingLeft, pad.PaddingRight = UDim.new(0, 10), UDim.new(0, 10)
+
+	local list = Instance.new("UIListLayout", box)
+	list.Padding = UDim.new(0, 6)
+	list.SortOrder = Enum.SortOrder.LayoutOrder
+
+	local hdr = Instance.new("TextLabel", box)
+	hdr.Size = UDim2.new(1, 0, 0, 16)
+	hdr.BackgroundTransparency = 1
+	hdr.Font = Enum.Font.GothamBold
+	hdr.TextSize = 11
+	hdr.TextColor3 = Palette.Text
+	hdr.TextXAlignment = Enum.TextXAlignment.Left
+	hdr.TextTruncate = Enum.TextTruncate.AtEnd
+	hdr.Text = titleText
+	hdr.LayoutOrder = 0
+	regFont(hdr, true)
+
+	local sep = Instance.new("Frame", box)
+	sep.Size = UDim2.new(1, 0, 0, 1)
+	sep.BackgroundColor3 = Palette.Border
+	sep.BorderSizePixel = 0
+	sep.LayoutOrder = 1
+	table.insert(ThemeTargets.Borders, sep)
+
+	local gData = {frame = box, homeParent = colParent, title = string.lower(titleText), items = {}, order = 2}
+	table.insert(allGroupboxes, gData)
+	return gData
+end
+
+-- Helper para añadir estrella de Favoritos a cada control
+local favCount = 0
+local function attachFavoriteStar(rowInstance, labelText, toggleTriggerFn)
+	local starBtn = Instance.new("TextButton", rowInstance)
+	starBtn.Size = UDim2.new(0, 14, 0, 14)
+	starBtn.Position = UDim2.new(1, -14, 0, 3)
+	starBtn.BackgroundTransparency = 1
+	starBtn.Text = "☆"
+	starBtn.Font = Enum.Font.GothamBold
+	starBtn.TextSize = 11
+	starBtn.TextColor3 = Palette.SubText
+	starBtn.ZIndex = 5
+
+	local isFav = false
+	local favShortcutBtn = nil
+
+	starBtn.MouseButton1Click:Connect(function()
+		playClick()
+		isFav = not isFav
+		starBtn.Text = isFav and "★" or "☆"
+		starBtn.TextColor3 = isFav and State.Accent or Palette.SubText
+
+		if isFav and favGroupLeft then
+			favCount += 1
+			local targetGrp = (favCount % 2 == 1) and favGroupLeft or favGroupRight
+			favShortcutBtn = Instance.new("TextButton", targetGrp.frame)
+			favShortcutBtn.Size = UDim2.new(1, 0, 0, 22)
+			favShortcutBtn.BackgroundColor3 = Palette.CardHeader
+			favShortcutBtn.Text = "  ★ " .. labelText
+			favShortcutBtn.Font = Enum.Font.GothamMedium
+			favShortcutBtn.TextSize = 10
+			favShortcutBtn.TextColor3 = Palette.Text
+			favShortcutBtn.TextXAlignment = Enum.TextXAlignment.Left
+			favShortcutBtn.TextTruncate = Enum.TextTruncate.AtEnd
+			favShortcutBtn.LayoutOrder = favCount + 2
+			Instance.new("UICorner", favShortcutBtn).CornerRadius = UDim.new(0, 4)
+			Instance.new("UIStroke", favShortcutBtn).Color = Palette.Border
+
+			favShortcutBtn.MouseButton1Click:Connect(function()
+				playClick()
+				if toggleTriggerFn then toggleTriggerFn() end
+			end)
+		elseif not isFav and favShortcutBtn then
+			favShortcutBtn:Destroy()
+			favShortcutBtn = nil
+		end
+	end)
+end
+
+local function addCheckbox(group, labelText, defaultState, defaultColor, callback, colorCallback)
+	group.order += 1
+	local state = defaultState
+
+	local row = Instance.new("TextButton", group.frame)
+	row.Size = UDim2.new(1, 0, 0, 20)
+	row.BackgroundTransparency = 1
+	row.Text = ""
+	row.AutoButtonColor = false
+	row.LayoutOrder = group.order
+	table.insert(group.items, {inst = row, text = string.lower(labelText)})
+
+	local box = Instance.new("Frame", row)
+	box.Size = UDim2.new(0, 13, 0, 13)
+	box.Position = UDim2.new(0, 0, 0.5, -6)
+	box.BackgroundColor3 = state and State.Accent or Palette.SwitchOff
+	Instance.new("UICorner", box).CornerRadius = UDim.new(0, 3)
+	local boxStroke = Instance.new("UIStroke", box)
+	boxStroke.Color = state and State.Accent or Palette.Border
+	boxStroke.Thickness = 1
+
+	local innerDot = Instance.new("Frame", box)
+	innerDot.Size = state and UDim2.new(0, 7, 0, 7) or UDim2.new(0, 0, 0, 0)
+	innerDot.AnchorPoint = Vector2.new(0.5, 0.5)
+	innerDot.Position = UDim2.new(0.5, 0, 0.5, 0)
+	innerDot.BackgroundColor3 = Palette.Bg
+	Instance.new("UICorner", innerDot).CornerRadius = UDim.new(0, 2)
+
+	local rightPad = defaultColor and -42 or -20
+	local lbl = Instance.new("TextLabel", row)
+	lbl.Size = UDim2.new(1, rightPad - 20, 1, 0)
+	lbl.Position = UDim2.new(0, 20, 0, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 10
+	lbl.TextColor3 = state and Palette.Text or Palette.SubText
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextTruncate = Enum.TextTruncate.AtEnd
+	lbl.Text = labelText
+	regFont(lbl, false)
+
+	if defaultColor then
+		local swatch = Instance.new("TextButton", row)
+		swatch.Size = UDim2.new(0, 16, 0, 11)
+		swatch.Position = UDim2.new(1, -34, 0.5, -5)
+		swatch.BackgroundColor3 = defaultColor
+		swatch.Text = ""
+		Instance.new("UICorner", swatch).CornerRadius = UDim.new(0, 3)
+		Instance.new("UIStroke", swatch).Color = Palette.Border
+
+		swatch.MouseButton1Click:Connect(function()
+			playClick()
+			colorModal.Visible = true
+			activeColorCallback = function(newCol)
+				swatch.BackgroundColor3 = newCol
+				if colorCallback then colorCallback(newCol) end
+			end
+		end)
+	end
+
+	local function setVisual(newState)
+		state = newState
+		TweenService:Create(box, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			BackgroundColor3 = state and State.Accent or Palette.SwitchOff
+		}):Play()
+		TweenService:Create(innerDot, TweenInfo.new(0.18, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Size = state and UDim2.new(0, 7, 0, 7) or UDim2.new(0, 0, 0, 0)
+		}):Play()
+		boxStroke.Color = state and State.Accent or Palette.Border
+		TweenService:Create(lbl, TweenInfo.new(0.18), {
+			TextColor3 = state and Palette.Text or Palette.SubText
+		}):Play()
+	end
+
+	local function triggerToggle()
+		setVisual(not state)
+		pcall(function() callback(state) end)
+	end
+
+	row.MouseButton1Click:Connect(function()
+		playClick()
+		triggerToggle()
+	end)
+
+	attachFavoriteStar(row, labelText, triggerToggle)
+	return setVisual
+end
+
+local function addSlider(group, labelText, min, max, defaultVal, suffix, callback)
+	group.order += 1
+	local container = Instance.new("Frame", group.frame)
+	container.Size = UDim2.new(1, 0, 0, 28)
+	container.BackgroundTransparency = 1
+	container.LayoutOrder = group.order
+	table.insert(group.items, {inst = container, text = string.lower(labelText)})
+
+	local lbl = Instance.new("TextLabel", container)
+	lbl.Size = UDim2.new(0.62, 0, 0, 13)
+	lbl.BackgroundTransparency = 1
+	lbl.Font = Enum.Font.GothamMedium
+	lbl.TextSize = 10
+	lbl.TextColor3 = Palette.SubText
+	lbl.TextXAlignment = Enum.TextXAlignment.Left
+	lbl.TextTruncate = Enum.TextTruncate.AtEnd
+	lbl.Text = labelText
+	regFont(lbl, false)
+
+	local valLbl = Instance.new("TextLabel", container)
+	valLbl.Size = UDim2.new(0.38, 0, 0, 13)
+	valLbl.Position = UDim2.new(0.62, 0, 0, 0)
+	valLbl.BackgroundTransparency = 1
+	valLbl.Font = Enum.Font.GothamBold
+	valLbl.TextSize = 10
+	valLbl.TextColor3 = Palette.Text
+	valLbl.TextXAlignment = Enum.TextXAlignment.Right
+	valLbl.TextTruncate = Enum.TextTruncate.AtEnd
+	valLbl.Text = tostring(defaultVal) .. (suffix or "")
+	regFont(valLbl, true)
+
+	local track = Instance.new("TextButton", container)
+	track.Size = UDim2.new(1, 0, 0, 4)
+	track.Position = UDim2.new(0, 0, 0, 19)
+	track.BackgroundColor3 = Palette.SwitchOff
+	track.Text = ""
+	track.AutoButtonColor = false
+	Instance.new("UICorner", track).CornerRadius = UDim.new(1, 0)
+
+	local r = math.clamp((defaultVal - min) / (max - min), 0, 1)
+	local fill = Instance.new("Frame", track)
+	fill.Size = UDim2.new(r, 0, 1, 0)
+	fill.BackgroundColor3 = State.Accent
+	fill.BorderSizePixel = 0
+	Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
+	table.insert(ThemeTargets.Accents, {inst = fill, prop = "BackgroundColor3"})
+
+	local knob = Instance.new("Frame", track)
+	knob.Size = UDim2.new(0, 8, 0, 8)
+	knob.AnchorPoint = Vector2.new(0.5, 0.5)
+	knob.Position = UDim2.new(r, 0, 0.5, 0)
+	knob.BackgroundColor3 = Palette.Text
+	Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+	local dragging = false
+	local function updateFromInput(input)
+		local ratio = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+		local raw = min + (max - min) * ratio
+		local val = (max - min <= 10) and (math.round(raw * 100) / 100) or math.round(raw)
+		TweenService:Create(fill, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {Size = UDim2.new(ratio, 0, 1, 0)}):Play()
+		TweenService:Create(knob, TweenInfo.new(0.06, Enum.EasingStyle.Quad), {Position = UDim2.new(ratio, 0, 0.5, 0)}):Play()
+		valLbl.Text = tostring(val) .. (suffix or "")
+		pcall(function() callback(val) end)
+	end
+
+	track.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			updateFromInput(i)
+		end
+	end)
+	UserInputService.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end)
+	UserInputService.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			updateFromInput(i)
+		end
+	end)
+end
+
+local function addButton(group, text, callback)
+	group.order += 1
+	local btn = Instance.new("TextButton", group.frame)
+	btn.Size = UDim2.new(1, 0, 0, 22)
+	btn.BackgroundColor3 = Palette.CardHeader
+	btn.Text = text
+	btn.Font = Enum.Font.GothamSemibold
+	btn.TextSize = 10
+	btn.TextColor3 = Palette.Text
+	btn.TextTruncate = Enum.TextTruncate.AtEnd
+	btn.AutoButtonColor = false
+	btn.LayoutOrder = group.order
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+	local st = Instance.new("UIStroke", btn)
+	st.Color = Palette.Border
+	table.insert(ThemeTargets.Borders, st)
+	table.insert(group.items, {inst = btn, text = string.lower(text)})
+	regFont(btn, true)
+
+	btn.MouseButton1Click:Connect(function()
+		playClick()
+		TweenService:Create(btn, TweenInfo.new(0.12), {BackgroundColor3 = State.Accent, TextColor3 = Palette.Bg}):Play()
+		task.delay(0.15, function()
+			TweenService:Create(btn, TweenInfo.new(0.18), {BackgroundColor3 = Palette.CardHeader, TextColor3 = Palette.Text}):Play()
+		end)
+		pcall(callback)
+	end)
+end
+
+-- BUSCADOR GLOBAL EN VIVO (Muestra resultados de TODAS las pestañas simultáneamente)
+searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+	local q = string.lower(searchBox.Text):gsub("^%s*(.-)%s*$", "%1")
+	if q == "" then
+		globalSearchPage.Visible = false
+		for _, g in ipairs(allGroupboxes) do
+			g.frame.Parent = g.homeParent
+			g.frame.Visible = true
+			for _, it in ipairs(g.items) do
+				it.inst.Visible = true
+			end
+		end
+		for name, p in pairs(pages) do
+			p.Visible = (name == currentActiveTab)
+		end
+	else
+		for _, p in pairs(pages) do p.Visible = false end
+		globalSearchPage.Visible = true
+		local matchColIdx = 1
+		for _, g in ipairs(allGroupboxes) do
+			local groupMatches = string.find(g.title, q, 1, true) ~= nil
+			local anyItemMatches = false
+			for _, it in ipairs(g.items) do
+				local m = groupMatches or (string.find(it.text, q, 1, true) ~= nil)
+				it.inst.Visible = m
+				if m then anyItemMatches = true end
+			end
+			if anyItemMatches then
+				g.frame.Visible = true
+				g.frame.Parent = gsCols[matchColIdx]
+				matchColIdx = (matchColIdx == 1) and 2 or 1
+			else
+				g.frame.Visible = false
+			end
+		end
+	end
+end)
+
+-- =====================================================================================
+-- 7. CONSTRUCCIÓN DE TODAS LAS PESTAÑAS Y MÓDULOS
+-- =====================================================================================
+addSidebarCategory("Quick Access")
+local colsFavs    = createSidebarTab("Favorites")
+
+addSidebarCategory("Visuals & World")
+local colsEffects = createSidebarTab("Effects")
+local colsWorld   = createSidebarTab("World")
+local colsESP     = createSidebarTab("ESP")
+
+addSidebarCategory("Modules & Engine")
+local colsCombat  = createSidebarTab("Combat")
+local colsPlayer  = createSidebarTab("Player")
+local colsFlags   = createSidebarTab("FFlags & FPS")
+local colsConfig  = createSidebarTab("Settings")
+
+-- PESTAÑA 0: FAVORITES
+favGroupLeft  = createGroupbox(colsFavs[1], "Pinned Favorites (Col 1)", 1)
+favGroupRight = createGroupbox(colsFavs[2], "Pinned Favorites (Col 2)", 1)
+addButton(favGroupLeft, "Click ☆ on any option to pin here!", function() end)
+
+-- ---------------------------------------------------------------------
+-- PÁGINA 1: EFFECTS (China Hat, Dual Aura, Orbs, Trail, Flashlight, Jump)
+-- ---------------------------------------------------------------------
+local grpHat = createGroupbox(colsEffects[1], "China Hat 3D", 1)
+addCheckbox(grpHat, "Enabled", State.ChinaHat, State.HatColor, function(v) State.ChinaHat = v end, function(col) State.HatColor = col end)
+addCheckbox(grpHat, "Outline Glow", State.HatOutline, nil, function(v) State.HatOutline = v end)
+addCheckbox(grpHat, "Floating Animation", State.HatAnimated, nil, function(v) State.HatAnimated = v end)
+addSlider(grpHat, "Height", 0.3, 3.0, State.HatHeight, "", function(v) State.HatHeight = v end)
+addSlider(grpHat, "Radius", 0.8, 4.0, State.HatRadius, "", function(v) State.HatRadius = v end)
+addSlider(grpHat, "Offset", 0.5, 4.0, State.HatOffset, "", function(v) State.HatOffset = v end)
+addSlider(grpHat, "Transparency", 0, 90, State.HatTransparency, "%", function(v) State.HatTransparency = v end)
+
+local grpTrail = createGroupbox(colsEffects[2], "Aura, Orbs & Flashlight", 1)
+addCheckbox(grpTrail, "Dual Energy Swirl 3D", State.AuraSwirl, State.HatColor, function(v) State.AuraSwirl = v end, function(col) State.HatColor = col end)
+addSlider(grpTrail, "Aura Ring Radius", 2.0, 8.0, State.AuraRadius, "m", function(v) State.AuraRadius = v end)
+addSlider(grpTrail, "Aura Spin Speed", 1.0, 10.0, State.AuraSpeed, "x", function(v) State.AuraSpeed = v end)
+addCheckbox(grpTrail, "Orbiting Spirit Orbs", State.FloatingOrbs, State.HatColor, function(v) State.FloatingOrbs = v end, function(col) State.HatColor = col end)
+addCheckbox(grpTrail, "Volumetric Flashlight Beam", State.Flashlight, Color3.fromRGB(255, 250, 210), function(v) State.Flashlight = v end)
+addCheckbox(grpTrail, "Movement Trail", State.TrailEnabled, State.TrailColor, function(v) State.TrailEnabled = v end, function(col) State.TrailColor = col end)
+addSlider(grpTrail, "Trail Duration", 0.1, 2.5, State.TrailDuration, "s", function(v) State.TrailDuration = v end)
+
+local grpJump = createGroupbox(colsEffects[1], "Jump Effect", 2)
+addCheckbox(grpJump, "Double Shockwave Ring", State.JumpEffect, State.JumpColor, function(v) State.JumpEffect = v end, function(col) State.JumpColor = col end)
+
+-- ---------------------------------------------------------------------
+-- PÁGINA 2: WORLD (Animated Constellations, Oxygen Spores, Sky Lightning, Skyboxes)
+-- ---------------------------------------------------------------------
+local grpSky = createGroupbox(colsWorld[1], "Sky & Atmospheric VFX", 1)
+addCheckbox(grpSky, "Rotating 3D Constellations", State.Constellations, State.ConstellationColor, function(v)
+	State.Constellations = v
+end, function(col)
+	State.ConstellationColor = col
+end)
+addSlider(grpSky, "Constellation Orbit Speed", 0, 2.0, State.ConstellationSpeed, "x", function(v) State.ConstellationSpeed = v end)
+addCheckbox(grpSky, "World Oxygen / Floating Spores", State.OxygenParticles, State.OxygenColor, function(v)
+	State.OxygenParticles = v
+end, function(col)
+	State.OxygenColor = col
+end)
+addSlider(grpSky, "Oxygen Density", 20, 350, State.OxygenAmount, "", function(v) State.OxygenAmount = v end)
+addCheckbox(grpSky, "Sky Lightning Bolts 3D", State.SkyLightning, State.LightningColor, function(v)
+	State.SkyLightning = v
+end, function(col)
+	State.LightningColor = col
+end)
+
+local function applySkyboxPreset(mode)
+	local cc = Lighting:FindFirstChild("AccusedWorldCC") or Instance.new("ColorCorrectionEffect", Lighting)
+	cc.Name = "AccusedWorldCC"
+	local atmo = Lighting:FindFirstChild("AccusedWorldAtmo") or Instance.new("Atmosphere", Lighting)
+	atmo.Name = "AccusedWorldAtmo"
+	cc.Enabled = true
+	if mode == "Crimson" then
+		Lighting.ClockTime = 0
+		cc.TintColor = Color3.fromRGB(255, 130, 145)
+		cc.Contrast = 0.35
+		cc.Saturation = 0.4
+		atmo.Density = 0.42
+		atmo.Color = Color3.fromRGB(95, 10, 20)
+	elseif mode == "Nebula" then
+		Lighting.ClockTime = 21
+		cc.TintColor = Color3.fromRGB(185, 165, 255)
+		cc.Contrast = 0.25
+		cc.Saturation = 0.35
+		atmo.Density = 0.32
+		atmo.Color = Color3.fromRGB(35, 20, 75)
+	elseif mode == "Cyber" then
+		Lighting.ClockTime = 18.5
+		cc.TintColor = Color3.fromRGB(150, 235, 255)
+		cc.Contrast = 0.3
+		cc.Saturation = 0.5
+		atmo.Density = 0.28
+		atmo.Color = Color3.fromRGB(15, 55, 85)
+	else
+		cc.Enabled = false
+		atmo.Density = 0.2
+		Lighting.ClockTime = 14
+	end
+end
+
+addButton(grpSky, "Sky: Crimson Castle Night", function() applySkyboxPreset("Crimson") end)
+addButton(grpSky, "Sky: Deep Astral Nebula", function() applySkyboxPreset("Nebula") end)
+addButton(grpSky, "Sky: Cyberpunk Horizon", function() applySkyboxPreset("Cyber") end)
+addButton(grpSky, "Sky: Restore Default", function() applySkyboxPreset("Default") end)
+
+local grpLight = createGroupbox(colsWorld[2], "Lighting & Shaders", 1)
+addCheckbox(grpLight, "Fullbright", State.Fullbright, nil, function(v)
+	State.Fullbright = v
+	Lighting.Brightness = v and 3 or 1
+	Lighting.GlobalShadows = not v
+end)
+addCheckbox(grpLight, "Custom Ambient", State.AmbientEnabled, State.AmbientColor, function(v)
+	State.AmbientEnabled = v
+	if not v then
+		Lighting.Ambient = Color3.fromRGB(127, 127, 127)
+		Lighting.OutdoorAmbient = Color3.fromRGB(127, 127, 127)
+	end
+end, function(col)
+	State.AmbientColor = col
+end)
+addCheckbox(grpLight, "Bloom Glow", State.Bloom, nil, function(v)
+	State.Bloom = v
+	local b = Lighting:FindFirstChild("AccusedBloom") or Instance.new("BloomEffect", Lighting)
+	b.Name = "AccusedBloom"
+	b.Enabled = v
+	b.Intensity = 1.6
+end)
+addSlider(grpLight, "Time of Day", 0, 24, State.ClockTime, "h", function(v)
+	State.ClockTime = v
+	Lighting.ClockTime = v
+end)
+addSlider(grpLight, "Exposure", -2, 2, State.Exposure, "", function(v)
+	State.Exposure = v
+	Lighting.ExposureCompensation = v
+end)
+
+-- ---------------------------------------------------------------------
+-- PÁGINA 3: ESP
+-- ---------------------------------------------------------------------
+local grpEspMain = createGroupbox(colsESP[1], "Corner Box ESP", 1)
+addCheckbox(grpEspMain, "Enabled", State.EspEnabled, State.EspColor, function(v)
+	State.EspEnabled = v
+end, function(col)
+	State.EspColor = col
+	for _, c in ipairs(previewCorners) do c.BackgroundColor3 = col end
+end)
+addCheckbox(grpEspMain, "Corner Brackets", State.EspCorners, nil, function(v)
+	State.EspCorners = v
+	for _, c in ipairs(previewCorners) do c.Visible = v end
+end)
+addCheckbox(grpEspMain, "Display Names", State.EspNames, nil, function(v)
+	State.EspNames = v
+	prevNameLbl.Visible = v
+end)
+addCheckbox(grpEspMain, "Health Bar", State.EspHealth, nil, function(v)
+	State.EspHealth = v
+	prevHpBg.Visible = v
+end)
+
+local grpEspExtra = createGroupbox(colsESP[2], "Targets & Preview Zoom", 1)
+addCheckbox(grpEspExtra, "Include Map Dummies/NPCs", State.IncludeNPCs, nil, function(v) State.IncludeNPCs = v end)
+addCheckbox(grpEspExtra, "3D Chams Highlight", State.EspChams, State.Accent, function(v) State.EspChams = v end)
+addSlider(grpEspExtra, "Preview Camera Zoom", 3.5, 9.0, State.PreviewZoom, "m", function(v) State.PreviewZoom = v end)
+
+-- ---------------------------------------------------------------------
+-- PÁGINA 4: COMBAT
+-- ---------------------------------------------------------------------
+local grpAim = createGroupbox(colsCombat[1], "Aimbot (Right Click)", 1)
+addCheckbox(grpAim, "Aim Assist", State.Aimbot, nil, function(v) State.Aimbot = v end)
+addCheckbox(grpAim, "Show FOV Circle", State.ShowFOV, State.Accent, function(v)
+	State.ShowFOV = v
+	fovCircle.Visible = v
+end)
+addSlider(grpAim, "Aim FOV", 40, 450, State.AimFOV, "px", function(v) State.AimFOV = v end)
+addSlider(grpAim, "Smoothness", 5, 100, State.AimSmooth, "%", function(v) State.AimSmooth = v end)
+
+local grpAuto = createGroupbox(colsCombat[2], "Automation", 1)
+addCheckbox(grpAuto, "TriggerBot", State.TriggerBot, nil, function(v) State.TriggerBot = v end)
+addCheckbox(grpAuto, "Auto-Farm Target", State.AutoFarm, nil, function(v) State.AutoFarm = v end)
+addSlider(grpAuto, "Orbit Distance", 3, 18, State.FarmDist, "m", function(v) State.FarmDist = v end)
+
+-- ---------------------------------------------------------------------
+-- PÁGINA 5: PLAYER
+-- ---------------------------------------------------------------------
+local grpMov = createGroupbox(colsPlayer[1], "Speed & Jump", 1)
+addCheckbox(grpMov, "Walkspeed Hack", State.Walkspeed, nil, function(v)
+	State.Walkspeed = v
+	if not v and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+		player.Character.Humanoid.WalkSpeed = 16
+	end
+end)
+addSlider(grpMov, "Speed", 16, 180, State.SpeedVal, "", function(v) State.SpeedVal = v end)
+addCheckbox(grpMov, "JumpPower Hack", State.JumpPower, nil, function(v)
+	State.JumpPower = v
+	if not v and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+		player.Character.Humanoid.JumpPower = 50
+	end
+end)
+addSlider(grpMov, "Jump Power", 50, 220, State.JumpVal, "", function(v) State.JumpVal = v end)
+addCheckbox(grpMov, "Infinite Jump", State.InfiniteJump, nil, function(v) State.InfiniteJump = v end)
+
+local grpExploit = createGroupbox(colsPlayer[2], "Physics & Desync", 1)
+local setFlyCheck = addCheckbox(grpExploit, "Fly Hack [Key: E]", State.Fly, nil, function(v) State.Fly = v end)
+addSlider(grpExploit, "Fly Speed", 20, 220, State.FlySpeed, "", function(v) State.FlySpeed = v end)
+local setNoclipCheck = addCheckbox(grpExploit, "NoClip [Key: N]", State.NoClip, nil, function(v) State.NoClip = v end)
+addCheckbox(grpExploit, "Character Spinbot", State.Spinbot, nil, function(v) State.Spinbot = v end)
+addSlider(grpExploit, "Spin Speed", 5, 100, State.SpinSpeed, "", function(v) State.SpinSpeed = v end)
+
+-- ---------------------------------------------------------------------
+-- PÁGINA 6: FFLAGS & ULTRA FPS OPTIMIZER
+-- ---------------------------------------------------------------------
+local grpFps = createGroupbox(colsFlags[1], "Ultra FPS Booster", 1)
+addCheckbox(grpFps, "Ultra FPS Mode (Strip Textures)", false, nil, function(v)
+	if v then
+		Lighting.GlobalShadows = false
+		Lighting.FogEnd = 9e9
+		for _, inst in ipairs(workspace:GetDescendants()) do
+			if inst:IsA("BasePart") and not inst:IsDescendantOf(fxFolder) then
+				inst.Material = Enum.Material.SmoothPlastic
+				inst.Reflectance = 0
+				inst.CastShadow = false
+			elseif inst:IsA("Decal") or inst:IsA("Texture") then
+				inst.Transparency = 1
+			elseif inst:IsA("ParticleEmitter") and not inst:IsDescendantOf(fxFolder) then
+				inst.Enabled = false
+			end
+		end
+	end
+end)
+addButton(grpFps, "Unlock FPS Cap (999 FPS)", function()
+	pcall(function() if setfpscap then setfpscap(999) end end)
+	pcall(function() if setfflag then setfflag("DFIntTaskSchedulerTargetFps", "999") end end)
+end)
+addButton(grpFps, "Apply Low-Latency Network Flags", function()
+	pcall(function()
+		if setfflag then
+			setfflag("DFIntConnectionMTUSize", "1492")
+			setfflag("FIntRakNetResendBufferArrayLength", "128")
+		end
+	end)
+end)
+addButton(grpFps, "Disable Post-Processing Shadows Flag", function()
+	pcall(function()
+		if setfflag then
+			setfflag("FIntRenderShadowIntensity", "0")
+		end
+		Lighting.GlobalShadows = false
+	end)
+end)
+
+local grpCustomFlag = createGroupbox(colsFlags[2], "Custom FFlag Executor", 1)
+local flagNameBox = Instance.new("TextBox", grpCustomFlag.frame)
+flagNameBox.Size = UDim2.new(1, 0, 0, 22)
+flagNameBox.BackgroundColor3 = Palette.CardHeader
+flagNameBox.PlaceholderText = "FFlag Name (e.g. DFIntTaskSchedulerTargetFps)"
+flagNameBox.PlaceholderColor3 = Palette.SubText
+flagNameBox.Text = ""
+flagNameBox.Font = Enum.Font.Gotham
+flagNameBox.TextSize = 9
+flagNameBox.TextColor3 = Palette.Text
+flagNameBox.ClearTextOnFocus = false
+flagNameBox.LayoutOrder = 10
+Instance.new("UICorner", flagNameBox).CornerRadius = UDim.new(0, 4)
+Instance.new("UIStroke", flagNameBox).Color = Palette.Border
+
+local flagValBox = Instance.new("TextBox", grpCustomFlag.frame)
+flagValBox.Size = UDim2.new(1, 0, 0, 22)
+flagValBox.BackgroundColor3 = Palette.CardHeader
+flagValBox.PlaceholderText = "Value (e.g. True, False, 999, 0)"
+flagValBox.PlaceholderColor3 = Palette.SubText
+flagValBox.Text = ""
+flagValBox.Font = Enum.Font.Gotham
+flagValBox.TextSize = 9
+flagValBox.TextColor3 = Palette.Text
+flagValBox.ClearTextOnFocus = false
+flagValBox.LayoutOrder = 11
+Instance.new("UICorner", flagValBox).CornerRadius = UDim.new(0, 4)
+Instance.new("UIStroke", flagValBox).Color = Palette.Border
+
+addButton(grpCustomFlag, "Execute Custom FFlag", function()
+	local fName = flagNameBox.Text
+	local fVal = flagValBox.Text
+	if fName ~= "" then
+		pcall(function()
+			if setfflag then setfflag(fName, fVal) end
+		end)
+		infoDesc.Text = "Executed FFlag: " .. fName .. " = " .. fVal
+	end
+end)
+
+-- ---------------------------------------------------------------------
+-- PÁGINA 7: SETTINGS (Personalización Total de Interfaz, RGB, Fuentes, Escala y Watermark)
+-- ---------------------------------------------------------------------
+local grpWmConfig = createGroupbox(colsConfig[1], "Watermark & HUD Elements", 1)
+addCheckbox(grpWmConfig, "Watermark: Show Username", State.WmShowName, nil, function(v) State.WmShowName = v end)
+addCheckbox(grpWmConfig, "Watermark: Show FPS", State.WmShowFPS, nil, function(v) State.WmShowFPS = v end)
+addCheckbox(grpWmConfig, "Watermark: Show Ping (ms)", State.WmShowPing, nil, function(v) State.WmShowPing = v end)
+addCheckbox(grpWmConfig, "Watermark: Show Time (12h)", State.WmShowTime, nil, function(v) State.WmShowTime = v end)
+addCheckbox(grpWmConfig, "Edit HUD Layout (Drag Widgets)", State.EditHUD, nil, function(v) State.EditHUD = v end)
+addCheckbox(grpWmConfig, "Show 3D Avatar Preview", true, nil, function(v) espPreviewWin.Visible = v end)
+addCheckbox(grpWmConfig, "Show Top Info & Media Widgets", true, nil, function(v)
+	infoWidget.Visible = v
+	mediaWidget.Visible = v
+end)
+
+local grpFullTheme = createGroupbox(colsConfig[2], "Full Interface Customization", 1)
+
+local function applyFullUITheme()
+	for _, item in ipairs(ThemeTargets.Accents) do
+		item.inst[item.prop] = State.Accent
+	end
+	for _, bg in ipairs(ThemeTargets.Bgs) do
+		bg.BackgroundColor3 = Palette.Bg
+	end
+	for _, card in ipairs(ThemeTargets.Cards) do
+		card.BackgroundColor3 = Palette.Card
+	end
+	for _, brd in ipairs(ThemeTargets.Borders) do
+		if brd:IsA("UIStroke") then
+			brd.Color = Palette.Border
+		else
+			brd.BackgroundColor3 = Palette.Border
+		end
+	end
+end
+
+addCheckbox(grpFullTheme, "Chroma RGB Mode (Full UI)", State.ChromaRGB, State.Accent, function(v)
+	State.ChromaRGB = v
+end, function(col)
+	State.Accent = col
+	applyFullUITheme()
+end)
+
+addCheckbox(grpFullTheme, "Custom Background Color", true, Palette.Bg, function() end, function(col)
+	Palette.Bg = col
+	Palette.Sidebar = Color3.new(math.max(col.R - 0.02, 0), math.max(col.G - 0.02, 0), math.max(col.B - 0.02, 0))
+	applyFullUITheme()
+end)
+
+addCheckbox(grpFullTheme, "Custom Card Surface Color", true, Palette.Card, function() end, function(col)
+	Palette.Card = col
+	applyFullUITheme()
+end)
+
+addSlider(grpFullTheme, "UI Scale (Size)", 70, 130, State.UIScale, "%", function(v)
+	State.UIScale = v
+	mainUIScale.Scale = v / 100
+end)
+
+addSlider(grpFullTheme, "Corner Rounding", 0, 20, State.CornerRadius, "px", function(v)
+	State.CornerRadius = v
+	for _, c in ipairs(ThemeTargets.Corners) do
+		c.CornerRadius = UDim.new(0, v)
+	end
+end)
+
+addSlider(grpFullTheme, "Outer Glow Intensity", 0, 85, State.GlowIntensity, "%", function(v)
+	State.GlowIntensity = v
+	mainGlow.ImageTransparency = 1 - (v / 100)
+end)
+
+local fontList = {
+	{name = "Font: Gotham (Modern)", reg = Enum.Font.GothamMedium, bold = Enum.Font.GothamBold},
+	{name = "Font: Code (Terminal)", reg = Enum.Font.Code, bold = Enum.Font.Code},
+	{name = "Font: Ubuntu (Clean)", reg = Enum.Font.Ubuntu, bold = Enum.Font.Ubuntu},
+	{name = "Font: Michroma (Sci-Fi)", reg = Enum.Font.Michroma, bold = Enum.Font.Michroma}
+}
+for _, fData in ipairs(fontList) do
+	addButton(grpFullTheme, fData.name, function()
+		for _, item in ipairs(ThemeTargets.Fonts) do
+			item.inst.Font = item.bold and fData.bold or fData.reg
+		end
+	end)
+end
+
+switchPage("Effects")
+
+-- =====================================================================================
+-- 8. OBJETOS 3D DEL MUNDO Y PERSONAJE (CONSTELACIONES GIRATORIAS, OXÍGENO, RAYOS, LINTERNA)
+-- =====================================================================================
+
+-- A) CONSTELACIONES 3D ANIMADAS (Giran suavemente en el cielo)
+local constellationGroup = Instance.new("Model", fxFolder)
+constellationGroup.Name = "SkyConstellations"
+local baseConstellationData = {}
+
+local function buildConstellations()
+	constellationGroup:ClearAllChildren()
+	baseConstellationData = {}
+	local patterns = {
+		{Vector3.new(80, 130, 60), Vector3.new(115, 148, 85), Vector3.new(155, 142, 65), Vector3.new(185, 165, 95), Vector3.new(210, 150, 130)},
+		{Vector3.new(-90, 140, -70), Vector3.new(-130, 160, -50), Vector3.new(-165, 145, -85), Vector3.new(-140, 120, -115)},
+		{Vector3.new(-40, 155, 110), Vector3.new(0, 170, 135), Vector3.new(45, 150, 125), Vector3.new(25, 130, 95), Vector3.new(-40, 155, 110)},
+		{Vector3.new(110, 135, -100), Vector3.new(145, 155, -130), Vector3.new(180, 140, -110)}
+	}
+	for _, pts in ipairs(patterns) do
+		for i = 1, #pts do
+			local star = Instance.new("Part", constellationGroup)
+			star.Anchored = true
+			star.CanCollide = false
+			star.Shape = Enum.PartType.Ball
+			star.Material = Enum.Material.Neon
+			star.Color = State.ConstellationColor
+			star.Size = Vector3.new(1.5, 1.5, 1.5)
+			table.insert(baseConstellationData, {part = star, isLine = false, p1 = pts[i]})
+
+			if i < #pts then
+				local seg = Instance.new("Part", constellationGroup)
+				seg.Anchored = true
+				seg.CanCollide = false
+				seg.Material = Enum.Material.Neon
+				seg.Color = State.ConstellationColor
+				seg.Size = Vector3.new(0.32, 0.32, (pts[i + 1] - pts[i]).Magnitude)
+				table.insert(baseConstellationData, {part = seg, isLine = true, p1 = pts[i], p2 = pts[i + 1]})
+			end
+		end
+	end
+end
+buildConstellations()
+
+-- B) PARTÍCULAS DE OXÍGENO / POLVO FLOTANTE EN EL MAPA
+local oxygenPart = Instance.new("Part", fxFolder)
+oxygenPart.Name = "WorldOxygenField"
+oxygenPart.Size = Vector3.new(140, 55, 140)
+oxygenPart.Transparency = 1
+oxygenPart.Anchored = true
+oxygenPart.CanCollide = false
+
+local oxygenEmitter = Instance.new("ParticleEmitter", oxygenPart)
+oxygenEmitter.Texture = "rbxassetid://241685484"
+oxygenEmitter.LightEmission = 1
+oxygenEmitter.Size = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 0),
+	NumberSequenceKeypoint.new(0.3, 0.45),
+	NumberSequenceKeypoint.new(0.7, 0.45),
+	NumberSequenceKeypoint.new(1, 0)
+})
+oxygenEmitter.Transparency = NumberSequence.new({
+	NumberSequenceKeypoint.new(0, 1),
+	NumberSequenceKeypoint.new(0.25, 0.2),
+	NumberSequenceKeypoint.new(0.75, 0.2),
+	NumberSequenceKeypoint.new(1, 1)
+})
+oxygenEmitter.Lifetime = NumberRange.new(4, 7)
+oxygenEmitter.Speed = NumberRange.new(1.5, 4)
+oxygenEmitter.SpreadAngle = Vector2.new(180, 180)
+
+-- C) RAYOS EN EL CIELO (Sky Lightning 3D)
+local lastLightningTime = 0
+local function spawnSkyLightning()
+	local origin = camera.CFrame.Position + Vector3.new(math.random(-160, 160), 170, math.random(-160, 160))
+	local currentPos = origin
+	local boltModel = Instance.new("Model", fxFolder)
+	for i = 1, 9 do
+		local nextPos = currentPos + Vector3.new(math.random(-14, 14), -19, math.random(-14, 14))
+		local dist = (nextPos - currentPos).Magnitude
+		local seg = Instance.new("Part", boltModel)
+		seg.Anchored = true
+		seg.CanCollide = false
+		seg.Material = Enum.Material.Neon
+		seg.Color = State.LightningColor
+		seg.Size = Vector3.new(0.65, 0.65, dist)
+		seg.CFrame = CFrame.lookAt((currentPos + nextPos) * 0.5, nextPos)
+		TweenService:Create(seg, TweenInfo.new(0.45), {Transparency = 1, Size = Vector3.new(0.05, 0.05, dist)}):Play()
+		currentPos = nextPos
+	end
+	task.delay(0.5, function() boltModel:Destroy() end)
+end
+
+-- D) CHINA HAT 3D + DOBLE AURA + ORBES + LINTERNA VOLUMÉTRICA
+local hatModel = Instance.new("Model", fxFolder)
+hatModel.Name = "AccusedHat3D"
+
+local hatPart = Instance.new("Part", hatModel)
+hatPart.Anchored = true
+hatPart.CanCollide = false
+hatPart.Material = Enum.Material.Neon
+hatPart.Size = Vector3.new(1, 1, 1)
+local hatMesh = Instance.new("SpecialMesh", hatPart)
+hatMesh.MeshType = Enum.MeshType.FileMesh
+hatMesh.MeshId = "rbxassetid://1033714"
+
+local hatHighlight = Instance.new("Highlight", hatPart)
+hatHighlight.FillTransparency = 1
+hatHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+hatHighlight.OutlineTransparency = 0.05
+
+local auraRing1 = Instance.new("Part", hatModel)
+auraRing1.Anchored = true
+auraRing1.CanCollide = false
+auraRing1.Material = Enum.Material.Neon
+auraRing1.Size = Vector3.new(0.2, 0.2, 0.2)
+local ringMesh1 = Instance.new("SpecialMesh", auraRing1)
+ringMesh1.MeshType = Enum.MeshType.FileMesh
+ringMesh1.MeshId = "rbxassetid://3270017"
+
+local auraRing2 = Instance.new("Part", hatModel)
+auraRing2.Anchored = true
+auraRing2.CanCollide = false
+auraRing2.Material = Enum.Material.Neon
+auraRing2.Size = Vector3.new(0.2, 0.2, 0.2)
+local ringMesh2 = Instance.new("SpecialMesh", auraRing2)
+ringMesh2.MeshType = Enum.MeshType.FileMesh
+ringMesh2.MeshId = "rbxassetid://3270017"
+
+local spiritOrbs = {}
+for i = 1, 4 do
+	local orb = Instance.new("Part", hatModel)
+	orb.Anchored = true
+	orb.CanCollide = false
+	orb.Shape = Enum.PartType.Ball
+	orb.Material = Enum.Material.Neon
+	orb.Size = Vector3.new(0.45, 0.45, 0.45)
+	table.insert(spiritOrbs, orb)
+end
+
+-- Linterna Volumétrica
+local flashPart = Instance.new("Part", hatModel)
+flashPart.Anchored = true
+flashPart.CanCollide = false
+flashPart.Transparency = 1
+flashPart.Size = Vector3.new(0.5, 0.5, 0.5)
+local spotLight = Instance.new("SpotLight", flashPart)
+spotLight.Brightness = 4
+spotLight.Angle = 55
+spotLight.Face = Enum.NormalId.Front
+spotLight.Enabled = false
+
+-- Onda Doble al Saltar
+UserInputService.JumpRequest:Connect(function()
+	if State.InfiniteJump and player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+		player.Character.Humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+	end
+	if State.JumpEffect and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		local hrp = player.Character.HumanoidRootPart
+		for ringIdx = 1, 2 do
+			local wave = Instance.new("Part", fxFolder)
+			wave.Anchored = true
+			wave.CanCollide = false
+			wave.Material = Enum.Material.Neon
+			wave.Color = State.JumpColor
+			wave.Transparency = 0.15
+			wave.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 2.8, 0)) * CFrame.Angles(math.rad(90), 0, 0)
+			local m = Instance.new("SpecialMesh", wave)
+			m.MeshType = Enum.MeshType.FileMesh
+			m.MeshId = "rbxassetid://3270017"
+			m.Scale = Vector3.new(0.8, 0.8, 1)
+
+			local duration = (ringIdx == 1) and 0.55 or 0.75
+			local maxScale = (ringIdx == 1) and 9.5 or 6.0
+			local tw = TweenService:Create(m, TweenInfo.new(duration, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+				Scale = Vector3.new(maxScale, maxScale, 1)
+			})
+			TweenService:Create(wave, TweenInfo.new(duration), {Transparency = 1}):Play()
+			tw:Play()
+			tw.Completed:Connect(function() wave:Destroy() end)
+		end
+	end
+end)
+
+-- =====================================================================================
+-- 9. CAJAS ESP 2D (CORNER BOX PARA JUGADORES Y DUMMIES)
+-- =====================================================================================
+local espBoxes = {}
+
+local function create2DCornerBox(model)
+	local holder = Instance.new("Frame", espViewport)
+	holder.BackgroundTransparency = 1
+	holder.Visible = false
+
+	local nameTxt = Instance.new("TextLabel", holder)
+	nameTxt.Size = UDim2.new(1, 40, 0, 14)
+	nameTxt.Position = UDim2.new(0.5, -20, 0, -16)
+	nameTxt.AnchorPoint = Vector2.new(0.5, 0)
+	nameTxt.BackgroundTransparency = 1
+	nameTxt.Font = Enum.Font.GothamBold
+	nameTxt.TextSize = 10
+	nameTxt.TextColor3 = Color3.fromRGB(255, 255, 255)
+	nameTxt.TextStrokeTransparency = 0.4
+	nameTxt.Text = model.Name
+
+	local hpBar = Instance.new("Frame", holder)
+	hpBar.Size = UDim2.new(0, 2, 1, 0)
+	hpBar.Position = UDim2.new(0, -5, 0, 0)
+	hpBar.BackgroundColor3 = Color3.fromRGB(90, 255, 130)
+	hpBar.BorderSizePixel = 0
+
+	local corners = {}
+	local function cSeg(xs, ys, ax, ay, w, h)
+		local f = Instance.new("Frame", holder)
+		f.Size = UDim2.new(0, w, 0, h)
+		f.AnchorPoint = Vector2.new(ax, ay)
+		f.Position = UDim2.new(xs, 0, ys, 0)
+		f.BackgroundColor3 = State.EspColor
+		f.BorderSizePixel = 0
+		table.insert(corners, f)
+	end
+	cSeg(0,0,0,0,10,1) cSeg(0,0,0,0,1,10)
+	cSeg(1,0,1,0,10,1) cSeg(1,0,1,0,1,10)
+	cSeg(0,1,0,1,10,1) cSeg(0,1,0,1,1,10)
+	cSeg(1,1,1,1,10,1) cSeg(1,1,1,1,1,10)
+
+	espBoxes[model] = {holder = holder, name = nameTxt, hp = hpBar, corners = corners}
+	return espBoxes[model]
+end
+
+local function getTargetModels()
+	local list = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p ~= player and p.Character then
+			table.insert(list, p.Character)
+		end
+	end
+	if State.IncludeNPCs then
+		for _, obj in ipairs(workspace:GetChildren()) do
+			if obj:IsA("Model") and obj ~= player.Character and obj:FindFirstChildOfClass("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+				if not Players:GetPlayerFromCharacter(obj) then
+					table.insert(list, obj)
+				end
+			end
+		end
+	end
+	return list
+end
+
+-- =====================================================================================
+-- 10. BUCLE PRINCIPAL EN TIEMPO REAL (RENDERSTEPPED & STEPPED)
+-- =====================================================================================
+local flyBV, flyBG
+local flyVel = Vector3.zero
+local lastClockTick = 0
+local previewAngle = 0
+
+RunService.Stepped:Connect(function()
+	if (State.NoClip or State.AutoFarm) and player.Character then
+		for _, p in ipairs(player.Character:GetDescendants()) do
+			if p:IsA("BasePart") and p.CanCollide then
+				p.CanCollide = false
+			end
+		end
+	end
+end)
+
+RunService.RenderStepped:Connect(function(dt)
+	local now = tick()
+
+	-- 1. Modo Chroma RGB Global
+	if State.ChromaRGB then
+		State.Accent = Color3.fromHSV((now * 0.18 * State.ChromaSpeed) % 1, 0.75, 1)
+		for _, item in ipairs(ThemeTargets.Accents) do
+			item.inst[item.prop] = State.Accent
+		end
+	end
+
+	-- 2. Watermark Modular (Activa/Desactiva Nombre, FPS, Ping, Hora por separado)
+	if now - lastClockTick >= 0.4 then
+		lastClockTick = now
+		local parts = {"ACCUSED"}
+		if State.WmShowName then table.insert(parts, player.Name) end
+		if State.WmShowFPS then
+			local fps = math.round(1 / math.max(dt, 0.001))
+			table.insert(parts, fps .. " FPS")
+		end
+		if State.WmShowPing then
+			local ping = 42
+			pcall(function() ping = math.round(Stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+			table.insert(parts, ping .. "ms")
+		end
+		if State.WmShowTime then
+			table.insert(parts, getNormalTime())
+		end
+		wmLabel.Text = table.concat(parts, "   |   ")
+		local targetW = math.clamp(wmLabel.TextBounds.X + 34, 110, 460)
+		watermark.Size = UDim2.new(0, targetW, 0, 28)
+		mediaBarFill.Size = UDim2.new((now % 30) / 30, 0, 1, 0)
+	end
+
+	-- 3. Avatar 3D en el Preview
+	if vpCharClone and vpCharClone:FindFirstChild("HumanoidRootPart") then
+		local vpHrp = vpCharClone.HumanoidRootPart
+		local vpHead = vpCharClone:FindFirstChild("Head") or vpHrp
+		if State.PreviewRotate then
+			previewAngle = previewAngle + dt * 0.75
+		end
+		local camPos = vpHrp.Position + Vector3.new(math.sin(previewAngle) * State.PreviewZoom, 0.5, math.cos(previewAngle) * State.PreviewZoom)
+		vpCam.CFrame = CFrame.lookAt(camPos, vpHrp.Position + Vector3.new(0, 0.15, 0))
+
+		if vpHatPart and vpHatMesh then
+			vpHatPart.Transparency = State.ChinaHat and (State.HatTransparency / 100) or 1
+			vpHatPart.Color = State.HatColor
+			vpHatMesh.Scale = Vector3.new(State.HatRadius, State.HatHeight, State.HatRadius)
+			vpHatPart.CFrame = CFrame.new(vpHead.Position + Vector3.new(0, State.HatOffset, 0))
+		end
+		if vpAuraPart and vpAuraMesh then
+			vpAuraPart.Transparency = State.AuraSwirl and 0.25 or 1
+			vpAuraPart.Color = State.HatColor
+			vpAuraMesh.Scale = Vector3.new(State.AuraRadius * 0.85, State.AuraRadius * 0.85, 0.9)
+			vpAuraPart.CFrame = CFrame.new(vpHrp.Position + Vector3.new(0, math.sin(now * State.AuraSpeed) * 1.1, 0)) * CFrame.Angles(math.rad(75), now * State.AuraSpeed, 0)
+		end
+	end
+
+	-- 4. Constelaciones 3D Animadas (Rotación orbital y pulso)
+	local skyRot = CFrame.Angles(0, now * State.ConstellationSpeed * 0.15, 0)
+	local pulse = 0.15 + (math.sin(now * 2.5) + 1) * 0.1
+	for _, item in ipairs(baseConstellationData) do
+		if State.Constellations then
+			item.part.Transparency = pulse
+			item.part.Color = State.ConstellationColor
+			if item.isLine then
+				local r1 = skyRot * item.p1
+				local r2 = skyRot * item.p2
+				item.part.CFrame = CFrame.lookAt((r1 + r2) * 0.5, r2)
+			else
+				item.part.Position = skyRot * item.p1
+			end
+		else
+			item.part.Transparency = 1
+		end
+	end
+
+	-- 5. Oxígeno Flotante y Rayos del Cielo
+	oxygenEmitter.Enabled = State.OxygenParticles
+	if State.OxygenParticles then
+		oxygenPart.Position = camera.CFrame.Position + Vector3.new(0, 10, 0)
+		oxygenEmitter.Rate = State.OxygenAmount
+		oxygenEmitter.Color = ColorSequence.new(State.OxygenColor)
+	end
+
+	if State.SkyLightning and (now - lastLightningTime > 1.6) then
+		lastLightningTime = now
+		spawnSkyLightning()
+	end
+
+	-- 6. Círculo FOV e Iluminación
+	if State.ShowFOV then
+		local mPos = UserInputService:GetMouseLocation()
+		fovCircle.Position = UDim2.new(0, mPos.X, 0, mPos.Y)
+		fovCircle.Size = UDim2.new(0, State.AimFOV * 2, 0, State.AimFOV * 2)
+	end
+	if State.AmbientEnabled then
+		Lighting.Ambient = State.AmbientColor
+		Lighting.OutdoorAmbient = State.AmbientColor
+	end
+
+	-- 7. Efectos 3D en el Personaje Local
+	local myChar = player.Character
+	local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+	local myHead = myChar and myChar:FindFirstChild("Head")
+	local myHum = myChar and myChar:FindFirstChildOfClass("Humanoid")
+
+	if myHead and State.ChinaHat then
+		hatPart.Transparency = State.HatTransparency / 100
+		hatPart.Color = State.HatColor
+		hatMesh.Scale = Vector3.new(State.HatRadius, State.HatHeight, State.HatRadius)
+		hatHighlight.Enabled = State.HatOutline
+		local bob = State.HatAnimated and (math.sin(now * 3.2) * 0.22) or 0
+		hatPart.CFrame = CFrame.new(myHead.Position + Vector3.new(0, State.HatOffset + bob, 0)) * CFrame.Angles(0, now * 1.8, 0)
+	else
+		hatPart.Transparency = 1
+		hatHighlight.Enabled = false
+	end
+
+	if myHrp and State.AuraSwirl then
+		auraRing1.Transparency = 0.22
+		auraRing1.Color = State.HatColor
+		ringMesh1.Scale = Vector3.new(State.AuraRadius, State.AuraRadius, 1.1)
+		auraRing1.CFrame = CFrame.new(myHrp.Position + Vector3.new(0, math.sin(now * State.AuraSpeed) * 1.8, 0)) * CFrame.Angles(math.rad(72), now * State.AuraSpeed, 0)
+
+		auraRing2.Transparency = 0.35
+		auraRing2.Color = State.TrailColor
+		ringMesh2.Scale = Vector3.new(State.AuraRadius * 0.82, State.AuraRadius * 0.82, 0.95)
+		auraRing2.CFrame = CFrame.new(myHrp.Position + Vector3.new(0, -math.sin(now * State.AuraSpeed) * 1.8, 0)) * CFrame.Angles(math.rad(-72), -now * State.AuraSpeed, 0)
+	else
+		auraRing1.Transparency = 1
+		auraRing2.Transparency = 1
+	end
+
+	for idx, orb in ipairs(spiritOrbs) do
+		if myHrp and State.FloatingOrbs then
+			orb.Transparency = 0.1
+			orb.Color = (idx % 2 == 0) and State.HatColor or State.TrailColor
+			local angle = (now * 2.4) + (idx * math.pi * 0.5)
+			local yOff = math.sin(now * 4 + idx) * 1.4
+			orb.Position = myHrp.Position + Vector3.new(math.cos(angle) * 3.2, yOff, math.sin(angle) * 3.2)
+		else
+			orb.Transparency = 1
+		end
+	end
+
+	if myHrp and State.Flashlight then
+		spotLight.Enabled = true
+		spotLight.Range = State.FlashlightRange
+		spotLight.Color = State.HatColor
+		flashPart.CFrame = CFrame.lookAt(myHrp.Position + Vector3.new(0, 1.5, 0), myHrp.Position + camera.CFrame.LookVector * 20)
+	else
+		spotLight.Enabled = false
+	end
+
+	if myHrp then
+		local tr = myHrp:FindFirstChild("AccusedTrail")
+		if State.TrailEnabled then
+			if not tr then
+				local a0 = Instance.new("Attachment", myHrp) a0.Name = "AccA0" a0.Position = Vector3.new(0, 0.8, 0)
+				local a1 = Instance.new("Attachment", myHrp) a1.Name = "AccA1" a1.Position = Vector3.new(0, -1.2, 0)
+				tr = Instance.new("Trail", myHrp)
+				tr.Name = "AccusedTrail"
+				tr.Attachment0 = a0
+				tr.Attachment1 = a1
+				tr.LightEmission = 1
+				tr.Transparency = NumberSequence.new({NumberSequenceKeypoint.new(0, 0.1), NumberSequenceKeypoint.new(1, 1)})
+			end
+			tr.Enabled = true
+			tr.Lifetime = State.TrailDuration
+			tr.Color = ColorSequence.new(State.TrailColor, State.HatColor)
+		elseif tr then
+			tr.Enabled = false
+		end
+	end
+
+	-- 8. Movimiento y Físicas
+	if myHum then
+		if State.Walkspeed then myHum.WalkSpeed = State.SpeedVal end
+		if State.JumpPower then myHum.UseJumpPower = true myHum.JumpPower = State.JumpVal end
+	end
+	if myHrp and State.Spinbot then
+		myHrp.CFrame *= CFrame.Angles(0, math.rad(State.SpinSpeed), 0)
+	end
+
+	if State.Fly and myHrp and myHum then
+		myHum.PlatformStand = true
+		if not flyBV then
+			flyBV = Instance.new("BodyVelocity", myHrp)
+			flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+			flyBG = Instance.new("BodyGyro", myHrp)
+			flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+			flyBG.P = 9000
+		end
+		local dir = Vector3.zero
+		if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir += camera.CFrame.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir -= camera.CFrame.LookVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir -= camera.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir += camera.CFrame.RightVector end
+		if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir += Vector3.new(0, 1, 0) end
+		if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir -= Vector3.new(0, 1, 0) end
+		if dir.Magnitude > 0 then dir = dir.Unit * State.FlySpeed end
+		flyVel = flyVel:Lerp(dir, 0.2)
+		flyBV.Velocity = flyVel
+		flyBG.CFrame = camera.CFrame
+	else
+		if flyBV then flyBV:Destroy() flyBV = nil end
+		if flyBG then flyBG:Destroy() flyBG = nil end
+		if myHum and myHum.PlatformStand then myHum.PlatformStand = false end
+	end
+
+	-- 9. ESP 2D Corner Box + Combate
+	local targets = getTargetModels()
+	local activeMap = {}
+	local closestHead, shortestDist = nil, State.AimFOV
+	local mPos = UserInputService:GetMouseLocation()
+
+	for _, model in ipairs(targets) do
+		local hrp = model:FindFirstChild("HumanoidRootPart")
+		local head = model:FindFirstChild("Head") or hrp
+		local hum = model:FindFirstChildOfClass("Humanoid")
+
+		if hrp and hum and hum.Health > 0 then
+			activeMap[model] = true
+			local screenPos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+
+			if onScreen and head then
+				local hPos = camera:WorldToViewportPoint(head.Position)
+				local d = (mPos - Vector2.new(hPos.X, hPos.Y)).Magnitude
+				if d < shortestDist then
+					shortestDist = d
+					closestHead = head
+				end
+			end
+
+			local boxUI = espBoxes[model] or create2DCornerBox(model)
+			if State.EspEnabled and onScreen then
+				local dist = math.max(screenPos.Z, 1)
+				local boxH = math.clamp(2200 / dist, 28, 320)
+				local boxW = boxH * 0.65
+				boxUI.holder.Visible = true
+				boxUI.holder.Size = UDim2.new(0, boxW, 0, boxH)
+				boxUI.holder.Position = UDim2.new(0, screenPos.X - boxW * 0.5, 0, screenPos.Y - boxH * 0.5)
+				boxUI.name.Visible = State.EspNames
+				boxUI.hp.Visible = State.EspHealth
+				local hpRatio = math.clamp(hum.Health / math.max(hum.MaxHealth, 1), 0, 1)
+				boxUI.hp.Size = UDim2.new(0, 2, hpRatio, 0)
+				boxUI.hp.Position = UDim2.new(0, -5, 1 - hpRatio, 0)
+				for _, c in ipairs(boxUI.corners) do
+					c.Visible = State.EspCorners
+					c.BackgroundColor3 = State.EspColor
+				end
+			else
+				boxUI.holder.Visible = false
+			end
+
+			local hl = model:FindFirstChild("AccusedChams")
+			if State.EspChams then
+				if not hl then
+					hl = Instance.new("Highlight", model)
+					hl.Name = "AccusedChams"
+					hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				end
+				hl.FillColor = State.Accent
+				hl.FillTransparency = 0.45
+			elseif hl then
+				hl:Destroy()
+			end
+		end
+	end
+
+	for model, boxUI in pairs(espBoxes) do
+		if not activeMap[model] then
+			boxUI.holder.Visible = false
+		end
+	end
+
+	if State.AutoFarm and myHrp and #targets > 0 then
+		local tModel = targets[1]
+		local tHrp = tModel:FindFirstChild("HumanoidRootPart")
+		if tHrp then
+			myHrp.CFrame = tHrp.CFrame * CFrame.new(0, 0, State.FarmDist)
+			myHrp.AssemblyLinearVelocity = Vector3.zero
+			local tool = myChar:FindFirstChildOfClass("Tool")
+			if tool then tool:Activate() end
+		end
+	elseif State.Aimbot and UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) and closestHead then
+		camera.CFrame = camera.CFrame:Lerp(CFrame.new(camera.CFrame.Position, closestHead.Position), State.AimSmooth / 100)
+		if State.TriggerBot and myChar then
+			local tool = myChar:FindFirstChildOfClass("Tool")
+			if tool then tool:Activate() end
+		end
+	end
+end)
+
+-- =====================================================================================
+-- 11. ANIMACIÓN DE APERTURA Y LANZAMIENTO CON INTRO MOTION GRAPHICS
+-- =====================================================================================
+local function toggleMenu()
+	State.MenuOpen = not State.MenuOpen
+	playClick()
+	if State.MenuOpen then
+		mainContainer.Visible = true
+		mainUIScale.Scale = (State.UIScale / 100) * 0.92
+		TweenService:Create(mainUIScale, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Scale = State.UIScale / 100
+		}):Play()
+	else
+		local tw = TweenService:Create(mainUIScale, TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Scale = (State.UIScale / 100) * 0.92
+		})
+		tw:Play()
+		tw.Completed:Connect(function()
+			if not State.MenuOpen then mainContainer.Visible = false end
+		end)
+	end
+end
+
+closeBtn.MouseButton1Click:Connect(toggleMenu)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+	if gpe then return end
+	if input.KeyCode == Enum.KeyCode.RightControl or input.KeyCode == Enum.KeyCode.LeftControl then
+		toggleMenu()
+	elseif input.KeyCode == Enum.KeyCode.E then
+		State.Fly = not State.Fly
+		setFlyCheck(State.Fly)
+	elseif input.KeyCode == Enum.KeyCode.N then
+		State.NoClip = not State.NoClip
+		setNoclipCheck(State.NoClip)
+	end
+end)
+
+-- Ejecutar la animación de entrada Motion Graphics y abrir el menú al terminar
+playMotionGraphicsIntro(function()
+	State.MenuOpen = true
+	mainContainer.Visible = true
+	mainUIScale.Scale = 0.88
+	TweenService:Create(mainUIScale, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Scale = State.UIScale / 100
+	}):Play()
+end)
